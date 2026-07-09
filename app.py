@@ -4,18 +4,18 @@ import pandas as pd
 # ==========================================
 # 0. 페이지 설정 및 필수 경고문
 # ==========================================
-st.set_page_config(page_title="64큐브 처방 교육·연구 대시보드", layout="wide")
+st.set_page_config(page_title="64큐브-다면체 처방 대시보드", layout="wide")
 
 st.warning(
     "**[주의] 본 대시보드는 한의사의 변증, 처방 설명, 안전성 확인, 연구 기록을 돕기 위한 교육·연구 보조 도구입니다.**\n\n"
     "자동 진단 또는 자동 처방 도구가 아니며, 실제 처방은 면허가 있는 의료인의 임상 판단에 따라 결정되어야 합니다."
 )
 
-st.title("☯️ 유전암호-64큐브 처방 분석 대시보드")
-st.markdown("전통 처방 구조(기미/귀경)와 현대 생명정보(코돈/아미노산) 해석을 64차원 하이퍼큐브 벡터로 병렬 제시합니다.")
+st.title("☯️ 유전암호-다면체 처방 네트워크 대시보드")
+st.markdown("64큐브 상태공간(원본 지도)을 다면체(Octahedron, VE, RD)로 압축하여 처방의 복합 방향성을 구조적으로 시각화합니다.")
 
 # ==========================================
-# 1. 빅데이터 베이스 (유전암호 매핑 완벽 추가)
+# 1. 빅데이터 베이스 (+ 다면체 균형 분석 데이터 추가)
 # ==========================================
 @st.cache_data
 def load_data():
@@ -26,6 +26,29 @@ def load_data():
         "pattern_tags": ["수렴, 안신, 내부안정", "조습, 행기, 흐름회복", "승양, 익기, 에너지부스팅", "자음, 보신, 구조물질보충"],
         "q6_core_vector": ["보존형 및 완충형 변화 주도", "급진 전환형 변화 주도", "비정상 연장형 및 상승형 전환 주도", "보존형 변화 및 수렴형 완충 주도"],
         "caution_summary": ["간 기능 저하 주의, 과도한 진정", "임산부 신중 투여, 기허 환자", "고혈압, 상열감, 급성염증 주의", "소화장애, 설사 환자 주의"]
+    })
+    
+    # [신규 추가] 처방별 다면체 구조화 데이터
+    polyhedrons = pd.DataFrame({
+        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
+        "octahedron": [
+            "수렴형(강), 보존형(강), 완충형(중), 배출형(약), 전환형(약)",
+            "배출형(강), 전환형(강), 완충형(중), 보존형(약), 수렴형(약)",
+            "발산/상승형(강), 전환형(강), 보존형(중), 배출형(약)",
+            "보존형(강), 수렴형(강), 보충형(강), 완충형(중), 배출형(중), 급진전환형(낮음)"
+        ],
+        "ve_axis": [
+            "U-base (Phe, Tyr, Trp) 축 편중 ➔ 소수성 코어 형성 및 진정",
+            "C-base (Leu, Pro, His) 축 편중 ➔ 구조적 꺾임 및 활성 유도",
+            "A-base (Met, Ile, Asn) 축 편중 ➔ 에너지 대사 시작(Start)점 활성화",
+            "G-base (Val, Ala, Asp, Gly) 중심 ➔ 12 position-base 축 전반의 입체적 물질 보충 및 구조 안정화"
+        ],
+        "rd_plane": [
+            "수면/진정 방향의 단일면 강력 안정화",
+            "습탁 제거 및 기행 방향의 동적 완충면 형성",
+            "상부 면역 및 ATP 생성 축을 지지하는 넓은 상승 안정면",
+            "[숙지황·산약·산수유]의 '보존/보충 중심축' ↔ [복령·택사·목단피]의 '수습/허열 완충축'의 완벽한 쌍대 구조 안정화"
+        ]
     })
     
     herbs = pd.DataFrame({
@@ -103,7 +126,6 @@ def load_data():
         ]
     })
     
-    # 드디어 추가된 아미노산 & 코돈 데이터!!!
     vectors = pd.DataFrame({
         "herb_name": [
             "산조인", "지모", "천궁", "감초", "창출", "후박", "진피",
@@ -136,9 +158,9 @@ def load_data():
             "세포 내 물리적 뼈대를 형성하여 물질 손실 방지", "비극성 장벽을 통해 체액 증발을 막는 물리적 장벽 강화", "음전하를 띠어 위장관 점막의 수분을 강하게 포획", "공간적 제약 없이 잉여 수분을 배출 경로로 유도", "말초 혈관 내 단백질 결합을 풀어 순환 정체 해소", "강한 친수성 삼투압을 통해 신장 여과압 조절"
         ]
     })
-    return formulas, herbs, safety, vectors
+    return formulas, polyhedrons, herbs, safety, vectors
 
-df_formulas, df_herbs, df_safety, df_vectors = load_data()
+df_formulas, df_polyhedrons, df_herbs, df_safety, df_vectors = load_data()
 
 # ==========================================
 # 패널 1: 환자 입력 패널 (Sidebar)
@@ -163,13 +185,15 @@ analyze_btn = st.sidebar.button("분석 및 설명자료 생성", type="primary"
 # ==========================================
 if analyze_btn:
     formula_info = df_formulas[df_formulas["formula_name"] == selected_formula_name].iloc[0]
+    poly_info = df_polyhedrons[df_polyhedrons["formula_name"] == selected_formula_name].iloc[0]
     selected_id = formula_info["formula_id"]
     
     formula_herbs = df_herbs[df_herbs["formula_id"] == selected_id]
     formula_safety = df_safety[df_safety["herb_name"].isin(formula_herbs["herb_name"])]
     formula_vectors = df_vectors[df_vectors["herb_name"].isin(formula_herbs["herb_name"])]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["네트워크 패널", "64큐브 벡터 패널", "안전성 경고 패널", "환자 설명 출력"])
+    # 5개의 탭으로 확장!
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["네트워크 패널", "유전암호-64큐브 패널", "다면체 균형 패널", "안전성 경고 패널", "환자 설명 출력"])
     
     # ------------------------------------------
     with tab1:
@@ -180,15 +204,12 @@ if analyze_btn:
         st.caption("※ 君(중심 target module), 臣(보조 pathway), 佐(과도한 편향 완충), 使(방향 정렬 및 귀경)")
         
     # ------------------------------------------
-    # 코돈 및 아미노산 데이터가 화려하게 출력되는 3단계 패널!!!
-    # ------------------------------------------
     with tab2:
         st.subheader("🧬 3단계: 유전암호 및 64큐브 생화학 벡터 매핑")
         st.success(f"""
         **💡 64큐브 방향성 요약 ({selected_formula_name} 기준)**
         - **주요 방향:** {formula_info['pattern_tags']}
         - **64큐브 핵심 변화 유형:** `{formula_info['q6_core_vector']}`
-        - **주의 방향:** {formula_info['caution_summary']}
         """)
         
         st.markdown("*각 약재의 기미(氣味) 네트워크를 64개 코돈(Codon) 배열 및 20종 아미노산(Amino Acid)의 생화학적 벡터로 치환한 정밀 해석입니다.*")
@@ -201,8 +222,39 @@ if analyze_btn:
             st.divider()
 
     # ------------------------------------------
+    # 신규 탭: 다면체 균형 분석 패널!
+    # ------------------------------------------
     with tab3:
-        st.subheader("🚨 4단계: 안전성 확인 필요")
+        st.subheader("💎 4단계: 다면체 균형 및 구조화 패널")
+        st.error("**[주의] 다면체 분석은 처방 효과를 증명하는 것이 아니라, 처방의 복합 방향성을 구조적으로 시각화하는 정보기하학적 보조 도구입니다.**")
+        
+        st.markdown("#### 1. Q6 (64차원 하이퍼큐브) 원본 상태공간")
+        st.info("64상태(코돈/괘)와 384방향성 변화(효사/코돈 변이)가 그물처럼 연결된 원본 생화학 지도입니다. 처방은 이 공간을 가로지르는 복합 벡터로 해석됩니다.")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### 2. Octahedron (정팔면체) : 6대 방향 벡터")
+            st.markdown("*처방의 중심 방향성을 6대 축(보존, 완충, 전환, 수렴, 발산, 배출)으로 압축하여 표시합니다.*")
+            st.success(f"**[{selected_formula_name} 6방향 요약]**\n\n{poly_info['octahedron']}")
+            
+            st.markdown("#### 3. VE (벡터 평형체) : 12 Position-Base 축")
+            st.markdown("*12개의 꼭짓점 축(3코돈 위치 × 4염기) 위에 약재별 코돈-아미노산 주석을 배치합니다.*")
+            st.success(f"**[{selected_formula_name} VE 12축 배치]**\n\n{poly_info['ve_axis']}")
+
+        with col2:
+            st.markdown("#### 4. RD (마름모십이면체) : 안정화와 완충면")
+            st.markdown("*VE의 쌍대 구조로서, VE가 미는 방향축들이 모여 형성하는 '균형 공간'과 '완충면'을 해석합니다.*")
+            st.success(f"**[{selected_formula_name} RD 안정화 해석]**\n\n{poly_info['rd_plane']}")
+            
+            st.markdown("#### 5. TO (깎은 정팔면체) : 전신 네트워크 확산")
+            st.markdown("*단일 처방 모듈이 인체라는 거대 공간을 채워나갈 때(공간충전), 어긋남 없이 안정적으로 확장되는 균형 셀 모델입니다.*")
+            st.info("처방의 장기적 투여 시 전신적 평형(Homeostasis) 유지력을 대변합니다.")
+
+    # ------------------------------------------
+    with tab4:
+        st.subheader("🚨 5단계: 안전성 확인 필요")
         st.info("**이 경고는 처방 금지가 아니라, 한의사의 추가 확인이 필요하다는 뜻입니다.**\n\n복용약, 병력, 용량, 복용 기간을 확인하십시오.")
         
         safety_alerts = []
@@ -229,15 +281,14 @@ if analyze_btn:
         st.dataframe(formula_safety[["herb_name", "drug_interaction_flag", "pregnancy_flag", "liver_kidney_flag", "evidence_level", "evidence_note"]], use_container_width=True, hide_index=True)
 
     # ------------------------------------------
-    with tab4:
-        st.subheader("💬 5단계: 환자 설명 출력 패널")
+    with tab5:
+        st.subheader("💬 6단계: 환자 설명 출력 패널")
         st.markdown("#### 📝 진료기록용 요약 생성 (Medical Chart)")
         st.code(f"""
 - 처방명: {selected_formula_name}
 - 환자 주증상: {patient_symp if patient_symp else '미입력'}
-- 전통 변증 방향: {formula_info['indication_traditional']}
 - 64큐브 핵심 변화: {formula_info['q6_core_vector']}
-- 64큐브 작용 방향: {formula_info['pattern_tags']}
+- 다면체 안정성(RD): {poly_info['rd_plane']}
 - 안전성 체크: {'관련 주의 및 추가 검토 필요' if safety_alerts else '특이사항 없음'}
         """)
         
