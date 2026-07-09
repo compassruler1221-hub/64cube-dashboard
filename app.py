@@ -15,7 +15,7 @@ st.title("☯️ 64큐브 변증-처방 네트워크 설명 대시보드")
 st.markdown("전통 처방 구조와 현대 생명정보 해석을 병렬로 제시하여 안전성 확인을 시각화합니다.")
 
 # ==========================================
-# 1. 꽉 찬 100% 빅데이터 베이스 (기미, 귀경 완벽 복구)
+# 1. 꽉 찬 빅데이터 + 64큐브 코어 벡터 부활!
 # ==========================================
 @st.cache_data
 def load_data():
@@ -24,10 +24,10 @@ def load_data():
         "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
         "indication_traditional": ["심비양허, 허번불면", "비위습탁, 복부팽만", "비위기허, 중기하함", "간신음허, 허열도한"],
         "pattern_tags": ["수렴, 안신, 내부안정", "조습, 행기, 흐름회복", "승양, 익기, 에너지부스팅", "자음, 보신, 구조물질보충"],
+        "q6_core_vector": ["보존형 및 완충형 변화 주도", "급진 전환형 변화 주도", "비정상 연장형 및 상승형 전환 주도", "보존형 변화 및 수렴형 완충 주도"], # 64큐브 정체성 복구!
         "caution_summary": ["간 기능 저하 주의, 과도한 진정", "임산부 신중 투여, 기허 환자", "고혈압, 상열감, 급성염증 주의", "소화장애, 설사 환자 주의"]
     })
     
-    # 22개 모든 약재의 기미, 귀경 데이터 꽉꽉 채움!
     herbs = pd.DataFrame({
         "formula_id": [
             "F001", "F001", "F001", "F001", 
@@ -70,7 +70,6 @@ def load_data():
         ]
     })
     
-    # 표가 비어보이지 않도록 모든 약재의 안전성 데이터를 빠짐없이 기록
     safety = pd.DataFrame({
         "herb_name": [
             "산조인", "지모", "천궁", "감초", "창출", "후박", "진피", 
@@ -104,7 +103,6 @@ def load_data():
         ]
     })
     
-    # 64큐브 벡터 데이터도 모든 약재를 매핑하여 꽉 차게 출력!
     vectors = pd.DataFrame({
         "herb_name": [
             "산조인", "지모", "천궁", "감초", "창출", "후박", "진피",
@@ -167,7 +165,6 @@ if analyze_btn:
         st.subheader("📌 2단계: 변증 및 처방 구조 분석")
         st.info(f"**전통 변증 방향:** {formula_info['indication_traditional']} ({formula_info['pattern_tags']})")
         st.markdown("**군신좌사 (君臣佐使) 네트워크 구조**")
-        # 기미, 귀경 컬럼이 모두 포함된 꽉 찬 데이터 표출!
         st.dataframe(formula_herbs[["role", "herb_name", "dose_range", "four_qi", "five_flavor", "meridian_entry"]], use_container_width=True, hide_index=True)
         st.caption("※ 君(중심 target module), 臣(보조 pathway), 佐(과도한 편향 완충), 使(방향 정렬 및 귀경)")
         
@@ -177,11 +174,11 @@ if analyze_btn:
         st.success(f"""
         **💡 64큐브 방향성 요약 ({selected_formula_name} 기준)**
         - **주요 방향:** {formula_info['pattern_tags']}
+        - **64큐브 핵심 변화 유형:** `{formula_info['q6_core_vector']}`
         - **주의 방향:** {formula_info['caution_summary']}
         """)
         
         st.markdown("*64큐브 생화학 벡터는 처방의 효과를 단정하는 것이 아니며, 전통 처방 네트워크의 방향성을 생명정보 언어로 설명하는 보조 지도입니다.*")
-        # 모든 약재의 벡터 데이터가 꽉 차게 출력됨!
         for idx, row in formula_vectors.iterrows():
             st.markdown(f"**[{row['herb_name']}] 🎯 표적 기능:** {row['functional_module']}")
             st.markdown(f"- **벡터 유형:** `{row['q6_vector_type']}`")
@@ -214,7 +211,6 @@ if analyze_btn:
             st.success("✅ 현재 입력된 환자 조건에서 특이 안전성 경고가 발견되지 않았습니다. (의료인의 최종 판단 필수)")
             
         st.markdown("**약재별 상세 안전성 데이터**")
-        # 표가 텅 비지 않도록 모든 약재의 안전성 정보가 표출됨!
         st.dataframe(formula_safety[["herb_name", "drug_interaction_flag", "pregnancy_flag", "liver_kidney_flag", "evidence_level", "evidence_note"]], use_container_width=True, hide_index=True)
 
     # ------------------------------------------
@@ -225,7 +221,8 @@ if analyze_btn:
 - 처방명: {selected_formula_name}
 - 환자 주증상: {patient_symp if patient_symp else '미입력'}
 - 전통 변증 방향: {formula_info['indication_traditional']}
-- 64큐브 방향성: {formula_info['pattern_tags']}
+- 64큐브 핵심 변화: {formula_info['q6_core_vector']}
+- 64큐브 작용 방향: {formula_info['pattern_tags']}
 - 안전성 체크: {'관련 주의 및 추가 검토 필요' if safety_alerts else '특이사항 없음'}
         """)
         
