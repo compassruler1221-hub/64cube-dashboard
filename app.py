@@ -81,7 +81,6 @@ def load_data():
         "evidence_note": ["과다 복용 시 간효소 수치 상승", "일반적 용량 내 안전", "혈소판 응집 억제 작용", "위알도스테론증 유발 가능", "음허내열 환자 주의", "동물실험 자궁수축", "일반적 용량 내 안전", "면역계 자극 가능성", "과량 복용 시 두근거림/혈압상승", "일반적 용량 내 안전", "자궁 수축 및 출혈 경향", "상열감 환자 주의", "특이 체질 간부담", "점액질로 인한 소화불량/설사", "일반적 용량 내 안전", "혈당 강하 작용 보조", "이뇨 작용 보조", "혈류 순환 촉진", "신장 배설 부담 가능성"]
     })
     
-    # 코돈 Triplet 표기 엄밀화 및 단정적 생화학 기술을 상징적 해석축/주석으로 개정
     vectors = pd.DataFrame({
         "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "황기", "인삼", "백출", "당귀", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
         "codon": ["UUU (U-U-U)", "UCU (U-C-U)", "UAU (U-A-U)", "UGG (U-G-G)", "CUU (C-U-U)", "CCU (C-C-U)", "CAU (C-A-U)", "AUG (A-U-G)", "CGU (C-G-U)", "AUU (A-U-U)", "ACU (A-C-U)", "AAU (A-A-U)", "AGU (A-G-U)", "GUU (G-U-U)", "GCU (G-C-U)", "GAU (G-A-U)", "GGU (G-G-U)", "UGU (U-G-U)", "CAA (C-A-A)"],
@@ -144,7 +143,7 @@ if analyze_btn:
     # ------------------------------------------
     with tab2:
         st.subheader("🧬 3단계: 유전암호 및 64큐브 생화학 벡터 매핑")
-        st.error("**[해석 주의] 약재-코돈-아미노산 매핑은 약재가 실제 유전암호를 직접 변화시킨다는 뜻이 아니라, 약재의 전통적 작용 방향을 64큐브 코돈-아미노산 물성 벡터로 주석화한 생명정보학적 해석 모델입니다.**")
+        st.error("**[해석 주의] 약재-코돈-아미노산 매핑은 약재가 실제 유전암호를 직접 변화시킨다는 뜻이 아니라, 약재의 전통적 작용 방향을 64큐브 생화학 벡터 언어로 주석화한 해석 모델입니다.**")
         
         st.success(f"""
         **💡 64큐브 방향성 요약 ({selected_formula_name} 기준)**
@@ -189,8 +188,6 @@ if analyze_btn:
             st.info("처방의 장기적 투여 시 전신적 평형(Homeostasis) 유지력을 대변합니다.")
 
     # ------------------------------------------
-    # [보완 4 반영] 임상 안전성 경고 우선순위 계층적 가시화
-    # ------------------------------------------
     with tab4:
         st.subheader("🚨 5단계: 안전성 확인 필요")
         st.info("**이 경고는 처방 금지가 아니라, 한의사의 추가 확인이 필요하다는 뜻입니다.**\n\n복용약, 병력, 용량, 복용 기간을 확인하십시오.")
@@ -199,7 +196,6 @@ if analyze_btn:
         med_alerts = []
         notice_alerts = []
 
-        # 1. 최고 위험도 스크리닝
         if med_sedative and any(formula_safety["drug_interaction_flag"].str.contains("수면제|진정제", na=False)):
             high_alerts.append("🔴 **[약물상호작용: 높음]** 수면제/진정제 병용 시 과도한 진정 작용 유발 가능성 검토")
         if med_blood and any(formula_safety["drug_interaction_flag"].str.contains("항응고제|혈압약", na=False)):
@@ -209,16 +205,13 @@ if analyze_btn:
         if cond_liver and any(formula_safety["liver_kidney_flag"].str.contains("간|신장", na=False)):
             high_alerts.append("🔴 **[임상기저치: 높음]** 간/신장 기능 저하 환자 대량/장기 사용 시 신장 배설 부담 및 간효소 추이 검토 요망")
 
-        # 2. 중간 위험도 스크리닝
         if cond_dig and any(formula_safety["liver_kidney_flag"].str.contains("소화", na=False)):
              med_alerts.append("🟡 **[소화기계: 중간]** 만성 소화불량 환자 복용 시 점액질 성분(숙지황 등)으로 인한 위장 부담 검토")
 
-        # 3. 주의 위험도 스크리닝
         if cond_preg and any(formula_safety["pregnancy_flag"].str.contains("주의|신중|금기", na=False)):
             notice_alerts.append("🟢 **[특수조건: 주의]** 임산부 주의/금기 약재 포함 여부 및 투여 타당성 확인 요망")
-        notice_alerts.append("🟢 **[용량주의: 일반]** 장기 복용 및 대량 복용 시 환자의 복용 전후 전신 반응을 주기적으로 확인해야 합니다.")
+        notice_alerts.append("🟢 **[용량주의: 주의]** 장기 복용 및 대량 복용 시 환자의 복용 전후 전신 반응을 주기적으로 확인해야 합니다.")
 
-        # 우선순위별 화면 렌더링
         if high_alerts:
             st.markdown("### **[우선순위: 높음 (High)]**")
             for alert in high_alerts: st.error(alert)
@@ -237,31 +230,26 @@ if analyze_btn:
         st.dataframe(formula_safety[["herb_name", "drug_interaction_flag", "pregnancy_flag", "liver_kidney_flag", "evidence_level", "evidence_note"]], use_container_width=True, hide_index=True)
 
     # ------------------------------------------
-    # [보완 1, 2, 3 반영] 줄바꿈 처리로 가로 스크롤 완전 제거 및 안전한 톤의 HTML 출력
-    # ------------------------------------------
     with tab5:
         st.subheader("💬 6단계: 환자 설명 출력 패널")
-        st.error("**[방어문] 본 대시보드의 유전암호 및 다면체 분석은 처방 효과를 단정하거나 증명하는 것이 아니며, 전통 처방 구조의 복합 방향성을 가시화하는 보조 도구입니다.**")
-        
         st.markdown("#### 📝 진료기록용 요약 생성 (Medical Chart)")
         
-        # 가로 스크롤을 유발하던 줄바꿈을 코드 상에서 구조화하여 복사 및 캡처 무결성 확보
-        rd_formatted = (
-            "RD 균형도 = 3:3 대칭 균형\\\n"
-            "  - [보존/보충 3축]: 숙지황·산약·산수유\\\n"
-            "  - [배출/완충 3축]: 복령·택사·목단피"
-            if selected_formula_name == "육미지황환"
-            else poly_info['rd_plane'].replace('**','').replace('▶ ','')
-        )
-        
-        st.code(f"""
+        # [핵심 디버그] f-string 내부의 복잡한 연산 및 := 사용 배제. 밖에서 깨끗하게 문자열 연산 완료.
+        rd_plane_raw = poly_info.get("rd_plane", "")
+        if "대칭 균형" in rd_plane_raw:
+            rd_plane_clean = "3:3 대칭 균형 (三補: 숙지황·산약·산수유 vs 三瀉: 복령·택사·목단피)"
+        else:
+            rd_plane_clean = rd_plane_raw.replace('**', '').replace('▶ ', '').replace('\n', ' ')
+
+        chart_summary = f"""
 - 처방명: {selected_formula_name}
 - 환자 주증상: {patient_symp if patient_symp else '미입력'}
--전통 변증 방향: {formula_info['indication_traditional']}
+- 전통 변증 방향: {formula_info['indication_traditional']}
 - 64큐브 핵심 변화: {formula_info['q6_core_vector']}
-- 다면체 안정성(RD): {rd_plane_clean := rd_text if '대칭 균형' not in (rd_plane := poly_info['rd_plane']) else '3:3 대칭 균형 (三補: 숙지황/산약/산수유 vs 三瀉: 복령/택사/목단피)'}
-- 안전성 체크: 최고 위험도 주의 항목 존재 여부 임상 검토 필함
-        """)
+- 다면체 안정성(RD): {rd_plane_clean}
+- 안전성 체크: 최고 위험도 등급(High/Medium) 발생 여부 검토 필함
+"""
+        st.code(chart_summary)
         
         st.markdown("#### 🗣️ 환자 설명문 생성 (환자 배포용)")
         
@@ -275,23 +263,43 @@ if analyze_btn:
             if symptom_warnings:
                 warning_text = f"다만, 현재 입력된 정보(당뇨약 복용, 만성 소화불량, 간/신장 저하 등)가 체크되어 있으므로, 진료 과정에서 <b>{', '.join(symptom_warnings)}</b>를 세밀하게 확인해야 합니다."
             else:
-                warning_text = "다만, 복용 중이신 약물이나 기저질환과 관련하여 안전성 확인이 필요할 수 있으므로, 복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 용량을 조절해야 합니다."
+                warning_text = "다만, 복용 중이신 약물이나 기저질환과 관련하여 안전성 확인이 필요할 수 있으므로, 복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 조절해야 합니다."
 
             patient_html = f"""
             <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
                 이 처방, <b>육미지황환</b>은 한 가지 성분이 한 가지 증상만 조절하는 방식이 아니라, 여러 약재가 함께 작용하여 몸의 소모된 바탕을 보충하고 과도한 열감과 수분 정체를 함께 조절하는 복합 처방으로 설명할 수 있습니다.<br><br>
-                전통 한의학적 해석에서는 자음, 보신, 구조물질 보충의 방향을 가지며, 64큐브 다면체 해석에서는 숙지황·산약·산수유의 보존/보충 중심축과 복령·택사·목단피의 수습/허열 완충축이 3:3으로 마주 보는 RD 안정화 구조로 해석됩니다.<br><br>
+                전통 한의학적 해석에서는 자음, 보신, 구조물질 보충의 방향으로 설명할 수 있으며, 64큐브 다면체 해석에서는 <b>숙지황·산약·산수유의 보존/보충 중심축</b>과 <b>복령·택사·목단피의 수습/허열 완충축</b>이 3:3으로 마주 보는 RD 안정화 구조로 해석됩니다.<br><br>
                 {warning_text}
             </div>
             """
             st.markdown(patient_html, unsafe_allow_html=True)
             
+        elif selected_formula_name == "보중익기탕":
+            symptom_warnings = []
+            if med_diab: symptom_warnings.append("복용 전후 혈당 변동성")
+            if cond_liver: symptom_warnings.append("기력 상태 및 피로도 추이")
+            
+            warning_text = ""
+            if symptom_warnings:
+                warning_text = f"다만, 현재 입력된 정보(당뇨약 복용, 기저질환 등)가 체크되어 있으므로, 진료 과정에서 <b>{', '.join(symptom_warnings)}</b>를 세밀하게 확인해야 합니다."
+            else:
+                warning_text = "다만, 복용 중이신 약물이나 기저질환과 관련하여 안전성 확인이 필요할 수 있으므로, 복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 조절해야 합니다."
+
+            patient_html_bj = f"""
+            <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
+                이 처방, <b>보중익기탕</b>은 한 가지 성분이 한 가지 증상만 조절하는 방식이 아니라, 여러 약재가 함께 작용하여 몸의 소모된 바탕을 보충하고 과도한 열감과 수분 정체를 함께 조절하는 복합 처방으로 설명할 수 있습니다.<br><br>
+                전통 한의학적 해석에서는 승양, 익기, 에너지 부스팅 방향으로 설명할 수 있으며, 64큐브 다면체 해석에서는 보존형 안정화 처방이라기보다, Octahedron 6방향 벡터 중 <b>발산/상승과 전환축이 강하게 나타나는 보기·승양형 처방으로 해석</b>됩니다.<br><br>
+                {warning_text}
+            </div>
+            """
+            st.markdown(patient_html_bj, unsafe_allow_html=True)
+            
         else:
             patient_html_generic = f"""
             <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
-                이 처방(<b>{selected_formula_name}</b>)은 한 가지 성분이 한 가지 증상만 조절하는 방식이 아니라, 여러 약재가 함께 작용하여 몸의 균형 방향을 조절하는 복합 처방입니다.<br><br>
+                이 처방(<b>{selected_formula_name}</b>)은 한 가지 성분이 한 가지 증상만 조절하는 방식이 아니라, 여러 약재가 함께 작용하여 몸의 균형 방향을 조절하는 복합 처방으로 설명할 수 있습니다.<br><br>
                 전통 한의학적 해석에서는 <b>{formula_info['pattern_tags']}</b>의 방향성으로 설명할 수 있으며, 64큐브 다면체 해석에서는 <b>{formula_info['q6_core_vector']}</b>의 평형 구조로 해석됩니다.<br><br>
-                다만, 복용 중이신 약물이나 기저질환과 관련하여 안전성 확인이 필요할 수 있으므로, 복용 전후의 반응을 진료 과정에서 세밀하게 확인하고 조절해야 합니다.
+                다만, 복용 중이신 약물이나 기저질환과 관련하여 안전성 확인이 필요할 수 있으므로, 복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 조절해야 합니다.
             </div>
             """
             st.markdown(patient_html_generic, unsafe_allow_html=True)
