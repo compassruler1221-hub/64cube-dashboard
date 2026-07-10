@@ -62,27 +62,37 @@ def load_data():
         ]
     })
     
+    # 순수 한의학 처방-약재 정보 (중복 약재 포함 총 22행)
     herbs = pd.DataFrame({
         "formula_id": ["F001", "F001", "F001", "F001", "F002", "F002", "F002", "F002", "F003", "F003", "F003", "F003", "F003", "F003", "F003", "F003", "F004", "F004", "F004", "F004", "F004", "F004"],
         "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "감초", "황기", "인삼", "백출", "감초", "당귀", "진피", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
         "role": ["군약", "신약", "좌약", "사약", "군약", "신약", "좌약", "사약", "군약", "신약", "신약", "사약", "좌약", "좌약", "사약", "사약", "군약", "신약", "신약", "좌약", "사약", "사약"],
         "dose_range": ["15-20g", "9-12g", "6-9g", "3-6g", "10-15g", "9-12g", "9-12g", "3-6g", "15-20g", "9-12g", "9-12g", "3-6g", "6-9g", "3-6g", "3-6g", "3-6g", "20-25g", "10-15g", "10-15g", "9-12g", "9-12g", "9-12g"],
         "trad_role_desc": ["수렴 안신", "자음 강화", "행기 활혈", "조화 제약", "조습 건비", "행기 화위", "이기 조중", "조화 제약", "보외기 승양", "보내기 생진", "건비 조습", "조화 제약", "보혈 화혈", "이기 건비", "승양 투진", "소간 해울", "자음 보신 정혈", "보익 간신 수렴", "보비 위 익폐 신", "이수 삼습 건비", "청열 량혈 활혈", "이수 삼습 사열"],
+        "four_qi": ["평", "한", "온", "평", "온", "온", "온", "평", "미온", "미온", "온", "평", "온", "온", "미한", "미한", "미온", "미온", "평", "평", "미한", "한"],
+        "five_flavor": ["감, 산", "고, 감", "신", "감", "신, 고", "고, 신", "신, 고", "감", "감", "감, 미고", "감, 고", "감", "감, 신", "신, 고", "신, 감", "고, 신", "감", "산, 삽", "감", "감, 담", "고, 신", "감, 담"],
+        "meridian_entry": ["심, 간, 담", "폐, 위, 신", "간, 담, 심포", "심, 폐, 비, 위", "비, 위", "비, 위, 대장", "비, 폐", "심, 폐, 비, 위", "비, 폐", "비, 폐, 심", "비, 위", "심, 폐, 비, 위", "심, 간, 비", "비, 폐", "폐, 비, 위", "간, 담", "간, 신", "간, 신", "비, 폐, 신", "심, 비, 신", "심, 간, 신", "신, 방광"]
+    })
+    
+    # 64큐브 정보기하학 주석 (유니크 19개 약재 안전하게 분리)
+    vectors = pd.DataFrame({
+        "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "황기", "인삼", "백출", "당귀", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
         "codon": ["UUU (U-U-U)", "UCU (U-C-U)", "UAU (U-A-U)", "UGG (U-G-G)", "CUU (C-U-U)", "CCU (C-C-U)", "CAU (C-A-U)", "AUG (A-U-G)", "CGU (C-G-U)", "AUU (A-U-U)", "ACU (A-C-U)", "AAU (A-A-U)", "AGU (A-G-U)", "GUU (G-U-U)", "GCU (G-C-U)", "GAU (G-A-U)", "GGU (G-G-U)", "UGU (U-G-U)", "CAA (C-A-A)"],
         "amino_acid": ["Phe (페닐알라닌)", "Ser (세린)", "Tyr (티로신)", "Trp (트립토판)", "Leu (류신)", "Pro (프롤린)", "His (히스티딘)", "Met (메티오닌)", "Arg (아르기닌)", "Ile (이소류신)", "Thr (트레오닌)", "Asn (아스파라긴)", "Ser (세린)", "Val (발린)", "Ala (알라닌)", "Asp (아스파르트산)", "Gly (글리신)", "Cys (시스테인)", "Gln (글루타민)"],
         "q6_coord": [0, 16, 8, 42, 11, 15, 7, 42, 35, 41, 45, 37, 33, 40, 44, 36, 32, 34, 23],
         "q6_axis": ["보존형 변화 (소수성)", "수렴형 완충 (친수성)", "완충형 변화", "수렴형 조화", "급진 전환형 변화", "완충형 전환", "보존형 변화", "비정상 연장형 변화", "급진 전환형 변화", "보존형 강화", "보존형 변화", "상승형 전환", "완충형 변화", "구조 안정성 / 보존형 변화", "수렴형 완충", "보존형 완충", "전환형 배출", "완충형 변화", "급진 전환형 배출"]
     })
-    
+
     safety = pd.DataFrame({
         "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "황기", "인삼", "백출", "당귀", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
         "drug_interaction_flag": ["수면제, 진정제", "해당없음", "항응고제, 항혈소판제", "이뇨제, 혈압약", "해당없음", "해당없음", "해당없음", "면역관련 약물", "혈당관련 약물, 혈압약", "해당없음", "항응고제", "해당없음", "해당없음", "해당없음", "해당없음", "혈당관련 약물(시너지)", "이뇨제(시너지)", "항응고제", "이뇨제(시너지)"],
         "pregnancy_flag": ["안전", "안전", "주의권고", "안전", "안전", "신중투여", "안전", "안전", "안전", "안전", "주의권고", "안전", "안전", "안전", "안전", "안전", "안전", "금기추정", "안전"],
         "liver_kidney_flag": ["대량사용시 간부담", "특이사항 없음", "특이사항 없음", "장기복용시 신장/혈압 주의", "특이사항 없음", "특이사항 없음", "특이사항 없음", "특이사항 없음", "특이사항 없음", "특이사항 없음", "특이사항 없음", "특이사항 없음", "장기 복용시 간효소 주의", "소화기계 부담(위장장애)", "특이사항 없음", "특이사항 없음", "특이사항 없음", "특이사항 없음", "장기 복용시 신장 주의"],
     })
-    return formulas, polyhedrons, neijing, herbs, safety
+    
+    return formulas, polyhedrons, neijing, herbs, safety, vectors
 
-df_formulas, df_polyhedrons, df_neijing, df_herbs, df_safety = load_data()
+df_formulas, df_polyhedrons, df_neijing, df_herbs, df_safety, df_vectors = load_data()
 
 # ==========================================
 # 패널 1: 환자 입력 패널 (Sidebar)
@@ -114,7 +124,9 @@ if analyze_btn:
     formula_herbs = df_herbs[df_herbs["formula_id"] == selected_id]
     formula_safety = df_safety[df_safety["herb_name"].isin(formula_herbs["herb_name"])]
 
-    # [새로운 7단계 탭 구조 확립]
+    # 탭 2를 위해 중복 약재 데이터와 64큐브 벡터 데이터를 안전하게 결합
+    merged_herbs_vectors = pd.merge(formula_herbs, df_vectors, on="herb_name", how="left")
+
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "전통 처방 구조 패널", 
         "Q6 64큐브 Core 해석 패널", 
@@ -146,7 +158,7 @@ if analyze_btn:
         
         st.success(f"**💡 Q6 64큐브 핵심 변화 방향:** `{formula_info['q6_core_vector']}`")
         
-        for idx, row in formula_herbs.iterrows():
+        for idx, row in merged_herbs_vectors.iterrows():
             st.markdown(f"### **[약재: {row['herb_name']}]**")
             st.markdown(f"- 🏛️ **전통 역할:** {row['role']} / {row['trad_role_desc']}")
             st.markdown(f"- 🧬 **Q6 Core 주석:** `{row['codon']} ➔ {row['amino_acid']}` | **64큐브 좌표:** n={row['q6_coord']} | **해석축:** {row['q6_axis']}")
@@ -166,35 +178,38 @@ if analyze_btn:
         st.info(f"**[{selected_formula_name}] H(3,4) 확장 검토 지침**\n\n해당 처방을 구성하는 각 약재의 Q6 코돈 좌표를 중심으로, $H(3,4)$ 전체 치환망에서의 아미노산 물성 거리에 따른 가중치(Transition/Transversion 비율 등)를 결합하여 추가적인 기하학적 평형성을 탐색합니다.")
 
     # ------------------------------------------
+    # 가로 분리(st.columns)를 제거하고 세로(수직) 배치로 변경하여 가독성 극대화
+    # ------------------------------------------
     with tab4:
         st.subheader("💎 4. 다면체 방향성 시각화 (Polyhedron Visualization)")
         st.info("다면체는 처방 효과를 증명하는 도구가 아니라, 처방의 복합 방향성을 구조적으로 시각화하는 정보기하학적 보조 모델입니다.")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("#### 정팔면체 (Octahedron) : 6대 방향 벡터 시각화")
-            st.success(poly_info['octahedron'])
-            st.markdown("#### 벡터 평형체 (VE) : 12 Position-Base 시각화")
-            st.success(poly_info['ve_axis'])
+        st.markdown("#### 1. 정팔면체 (Octahedron) : 6대 방향 벡터 시각화")
+        st.success(poly_info['octahedron'])
+        
+        st.markdown("#### 2. 벡터 평형체 (VE) : 12 Position-Base 시각화")
+        st.success(poly_info['ve_axis'])
 
-        with col2:
-            st.markdown("#### 마름모십이면체 (RD) : 안정화 구조 시각화")
-            st.success(poly_info['rd_plane'])
+        st.markdown("#### 3. 마름모십이면체 (RD) : 안정화 구조 시각화")
+        st.success(poly_info['rd_plane'])
+        
+        st.markdown("#### 4. 깎은 정팔면체 (TO) : 전신 네트워크 확산 시각화")
+        st.info("단일 처방 모듈이 인체라는 거대 공간을 채워나갈 때(공간충전), 어긋남 없이 안정적으로 확장되는 장기적 전신적 평형(Homeostasis) 유지력을 대변합니다.")
 
+    # ------------------------------------------
+    # 가로 분리(st.columns)를 제거하고 세로(수직) 배치로 변경
     # ------------------------------------------
     with tab5:
         st.subheader("📚 5. 황제내경 병렬 해석 (Neijing Parallel Interpretation)")
         st.error("**[해석 주의] 본 패널은 황제내경 원문을 직접적인 생물학적 증명 자료로 사용하는 것이 아니라, 전통 생명론의 핵심 개념을 정보기하학 언어로 병렬 해석하는 교육·연구 보조 층입니다.**")
         
-        col_nj1, col_nj2 = st.columns(2)
-        with col_nj1:
-            st.markdown("#### 황제내경 해석축 (Neijing Axis)")
-            st.markdown(f"- 🏛️ **장부축 매핑:** `{nj_info['zang_fu']}`")
-            st.markdown(f"- 🩸 **기혈진액 변증축:** `{nj_info['qi_blood']}`")
-            st.markdown(f"- ☯️ **오행 작용 벡터:** `{nj_info['wuxing']}`")
-        with col_nj2:
-            st.markdown("#### 64큐브 - 황제내경 병렬 매핑 결론")
-            st.info(nj_info['interpretation'])
+        st.markdown("#### 1. 황제내경 해석축 (Neijing Axis)")
+        st.markdown(f"- 🏛️ **장부축 매핑:** `{nj_info['zang_fu']}`")
+        st.markdown(f"- 🩸 **기혈진액 변증축:** `{nj_info['qi_blood']}`")
+        st.markdown(f"- ☯️ **오행 작용 벡터:** `{nj_info['wuxing']}`")
+        
+        st.markdown("#### 2. 64큐브 - 황제내경 병렬 매핑 결론")
+        st.info(nj_info['interpretation'])
 
     # ------------------------------------------
     with tab6:
