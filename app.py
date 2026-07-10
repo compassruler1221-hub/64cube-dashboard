@@ -2,14 +2,57 @@ import streamlit as st
 import pandas as pd
 
 # ==========================================
-# 0. 페이지 설정 및 필수 가이드라인
+# 0. 64큐브 매핑 무결성 검산 (Assertion)
+# ==========================================
+# 본 대시보드의 수학적 정합성을 서버 기동 시 자동 검증합니다.
+def n_to_codon(n):
+    bases = {0: 'G', 1: 'A', 2: 'U', 3: 'C'}
+    b1 = n % 4
+    b2 = (n // 4) % 4
+    b3 = (n // 16) % 4
+    return bases[b1] + bases[b2] + bases[b3]
+
+def codon_to_aa(codon):
+    genetic_code = {
+        'UUU': 'Phe', 'UUC': 'Phe', 'UUA': 'Leu', 'UUG': 'Leu',
+        'CUU': 'Leu', 'CUC': 'Leu', 'CUA': 'Leu', 'CUG': 'Leu',
+        'AUU': 'Ile', 'AUC': 'Ile', 'AUA': 'Ile', 'AUG': 'Met',
+        'GUU': 'Val', 'GUC': 'Val', 'GUA': 'Val', 'GUG': 'Val',
+        'UCU': 'Ser', 'UCC': 'Ser', 'UCA': 'Ser', 'UCG': 'Ser',
+        'CCU': 'Pro', 'CCC': 'Pro', 'CCA': 'Pro', 'CCG': 'Pro',
+        'ACU': 'Thr', 'ACC': 'Thr', 'ACA': 'Thr', 'ACG': 'Thr',
+        'GCU': 'Ala', 'GCC': 'Ala', 'GCA': 'Ala', 'GCG': 'Ala',
+        'UAU': 'Tyr', 'UAC': 'Tyr', 'UAA': 'Stop', 'UAG': 'Stop',
+        'CAU': 'His', 'CAC': 'His', 'CAA': 'Gln', 'CAG': 'Gln',
+        'AAU': 'Asn', 'AAC': 'Asn', 'AAA': 'Lys', 'AAG': 'Lys',
+        'GAU': 'Asp', 'GAC': 'Asp', 'GAA': 'Glu', 'GAG': 'Glu',
+        'UGU': 'Cys', 'UGC': 'Cys', 'UGA': 'Stop', 'UGG': 'Trp',
+        'CGU': 'Arg', 'CGC': 'Arg', 'CGA': 'Arg', 'CGG': 'Arg',
+        'AGU': 'Ser', 'AGC': 'Ser', 'AGA': 'Arg', 'AGG': 'Arg',
+        'GGU': 'Gly', 'GGC': 'Gly', 'GGA': 'Gly', 'GGG': 'Gly'
+    }
+    return genetic_code.get(codon, "Unknown")
+
+# 핵심 공리 고정 검산
+assert n_to_codon(0) == "GGG"
+assert codon_to_aa(n_to_codon(0)) == "Gly"
+assert n_to_codon(9) == "AUG"
+assert codon_to_aa(n_to_codon(9)) == "Met"
+assert n_to_codon(18) == "UGA"
+assert codon_to_aa(n_to_codon(18)) == "Stop"
+assert n_to_codon(63) == "CCC"
+assert codon_to_aa(n_to_codon(63)) == "Pro"
+
+# ==========================================
+# 1. 페이지 설정 및 필수 방어 가이드라인
 # ==========================================
 st.set_page_config(page_title="64큐브-다면체 처방 대시보드", layout="wide")
 
 st.warning(
-    "**[주의] 본 대시보드에서 한의학 처방 분석은 전통 처방의 효과를 자동으로 증명하거나 예측하는 시스템이 아닙니다.**\n\n"
-    "처방의 전통적 방향성을 Q6 64큐브의 6비트 상태공간 언어로 주석화한 교육·연구 보조 모델이며, "
-    "실제 처방은 면허가 있는 한의사의 변증, 환자 병력, 검사 결과, 안전성 평가를 바탕으로 결정되어야 합니다."
+    "**[주의] 본 대시보드에서 한의학 처방 분석은 전통 처방의 생리적 효과를 자동으로 증명하거나 예측하는 시스템이 아닙니다.**\n\n"
+    "- 이 시스템의 약재-코돈 매핑은 약재가 실제 유전암호를 조절한다는 뜻이 아닙니다.\n"
+    "- 전통 처방 Core가 중심이며, Q6 64큐브는 해석(Core)층, H(3,4)는 생물정보 확장(Extension)층입니다.\n"
+    "- 실제 처방은 면허가 있는 한의사의 변증, 환자 병력, 검사 결과, 안전성 평가를 바탕으로 결정되어야 합니다."
 )
 
 st.title("☯️ 64큐브-다면체 기반 코돈·아미노산 벡터 처방 해석 대시보드")
@@ -19,7 +62,7 @@ st.markdown(
 )
 
 # ==========================================
-# 1. 무결점 데이터베이스 (한의학 Core 중심 재편 및 누락 컬럼 복구)
+# 2. 데이터베이스 세팅 (좌표 미고정 로직 반영)
 # ==========================================
 @st.cache_data
 def load_data():
@@ -62,7 +105,6 @@ def load_data():
         ]
     })
     
-    # 순수 한의학 처방-약재 정보 (중복 약재 포함 총 22행)
     herbs = pd.DataFrame({
         "formula_id": ["F001", "F001", "F001", "F001", "F002", "F002", "F002", "F002", "F003", "F003", "F003", "F003", "F003", "F003", "F003", "F003", "F004", "F004", "F004", "F004", "F004", "F004"],
         "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "감초", "황기", "인삼", "백출", "감초", "당귀", "진피", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
@@ -74,16 +116,15 @@ def load_data():
         "meridian_entry": ["심, 간, 담", "폐, 위, 신", "간, 담, 심포", "심, 폐, 비, 위", "비, 위", "비, 위, 대장", "비, 폐", "심, 폐, 비, 위", "비, 폐", "비, 폐, 심", "비, 위", "심, 폐, 비, 위", "심, 간, 비", "비, 폐", "폐, 비, 위", "간, 담", "간, 신", "간, 신", "비, 폐, 신", "심, 비, 신", "심, 간, 신", "신, 방광"]
     })
     
-    # 64큐브 정보기하학 주석 (유니크 19개 약재 안전하게 분리)
+    # 일부 약재(천궁, 승마 등)는 공격 방지를 위해 의도적으로 "좌표 미고정" 처리
     vectors = pd.DataFrame({
         "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "황기", "인삼", "백출", "당귀", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
-        "codon": ["UUU (U-U-U)", "UCU (U-C-U)", "UAU (U-A-U)", "UGG (U-G-G)", "CUU (C-U-U)", "CCU (C-C-U)", "CAU (C-A-U)", "AUG (A-U-G)", "CGU (C-G-U)", "AUU (A-U-U)", "ACU (A-C-U)", "AAU (A-A-U)", "AGU (A-G-U)", "GUU (G-U-U)", "GCU (G-C-U)", "GAU (G-A-U)", "GGU (G-G-U)", "UGU (U-G-U)", "CAA (C-A-A)"],
-        "amino_acid": ["Phe (페닐알라닌)", "Ser (세린)", "Tyr (티로신)", "Trp (트립토판)", "Leu (류신)", "Pro (프롤린)", "His (히스티딘)", "Met (메티오닌)", "Arg (아르기닌)", "Ile (이소류신)", "Thr (트레오닌)", "Asn (아스파라긴)", "Ser (세린)", "Val (발린)", "Ala (알라닌)", "Asp (아스파르트산)", "Gly (글리신)", "Cys (시스테인)", "Gln (글루타민)"],
-        "q6_coord": [0, 16, 8, 42, 11, 15, 7, 42, 35, 41, 45, 37, 33, 40, 44, 36, 32, 34, 23],
-        "q6_axis": ["보존형 변화 (소수성)", "수렴형 완충 (친수성)", "완충형 변화", "수렴형 조화", "급진 전환형 변화", "완충형 전환", "보존형 변화", "비정상 연장형 변화", "급진 전환형 변화", "보존형 강화", "보존형 변화", "상승형 전환", "완충형 변화", "구조 안정성 / 보존형 변화", "수렴형 완충", "보존형 완충", "전환형 배출", "완충형 변화", "급진 전환형 배출"]
+        "codon": ["UUU (U-U-U)", "UCU (U-C-U)", "미고정", "UGG (U-G-G)", "CUU (C-U-U)", "CCU (C-C-U)", "CAU (C-A-U)", "AUG (A-U-G)", "CGU (C-G-U)", "AUU (A-U-U)", "ACU (A-C-U)", "미고정", "AGU (A-G-U)", "GUU (G-U-U)", "GCU (G-C-U)", "GAU (G-A-U)", "GGU (G-G-U)", "UGU (U-G-U)", "CAA (C-A-A)"],
+        "amino_acid": ["Phe (페닐알라닌)", "Ser (세린)", "미고정", "Trp (트립토판)", "Leu (류신)", "Pro (프롤린)", "His (히스티딘)", "Met (메티오닌)", "Arg (아르기닌)", "Ile (이소류신)", "Thr (트레오닌)", "미고정", "Ser (세린)", "Val (발린)", "Ala (알라닌)", "Asp (아스파르트산)", "Gly (글리신)", "Cys (시스테인)", "Gln (글루타민)"],
+        "q6_coord": [0, 16, "미고정", 42, 11, 15, 7, 42, 35, 41, 45, "미고정", 33, 40, 44, 36, 32, 34, 23],
+        "q6_axis": ["보존형 변화 (소수성)", "수렴형 완충 (친수성)", "추후 고정 필요", "수렴형 조화", "급진 전환형 변화", "완충형 전환", "보존형 변화", "비정상 연장형 변화", "급진 전환형 변화", "보존형 강화", "보존형 변화", "추후 고정 필요", "완충형 변화", "구조 안정성 / 보존형 변화", "수렴형 완충", "보존형 완충", "전환형 배출", "완충형 변화", "급진 전환형 배출"]
     })
 
-    # KeyError 해결: evidence_level, evidence_note 컬럼 완벽 복구
     safety = pd.DataFrame({
         "herb_name": ["산조인", "지모", "천궁", "감초", "창출", "후박", "진피", "황기", "인삼", "백출", "당귀", "승마", "시호", "숙지황", "산수유", "산약", "복령", "목단피", "택사"],
         "drug_interaction_flag": ["수면제, 진정제", "해당없음", "항응고제, 항혈소판제", "이뇨제, 혈압약", "해당없음", "해당없음", "해당없음", "면역관련 약물", "혈당관련 약물, 혈압약", "해당없음", "항응고제", "해당없음", "해당없음", "해당없음", "해당없음", "혈당관련 약물(시너지)", "이뇨제(시너지)", "항응고제", "이뇨제(시너지)"],
@@ -126,23 +167,21 @@ if analyze_btn:
     
     formula_herbs = df_herbs[df_herbs["formula_id"] == selected_id]
     formula_safety = df_safety[df_safety["herb_name"].isin(formula_herbs["herb_name"])]
-
-    # 탭 2를 위해 중복 약재 데이터와 64큐브 벡터 데이터를 안전하게 결합
     merged_herbs_vectors = pd.merge(formula_herbs, df_vectors, on="herb_name", how="left")
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "전통 처방 구조 패널", 
-        "Q6 64큐브 Core 해석 패널", 
+        "전통 처방 Core 패널", 
+        "Q6 64큐브 Core 주석 패널", 
         "H(3,4) 생물정보 확장 패널", 
         "다면체 방향성 시각화 패널", 
         "황제내경 병렬 해석 패널", 
         "안전성 확인 패널", 
-        "환자 설명문"
+        "환자 설명문 패널"
     ])
     
     # ------------------------------------------
     with tab1:
-        st.subheader("📌 1. 전통 처방 구조 (Traditional Core Layer)")
+        st.subheader("📌 1. 전통 처방 Core 패널")
         if patient_symp:
             st.error(
                 f"**⚠️ [임상 정합도 확인 알림]**\n\n"
@@ -156,21 +195,26 @@ if analyze_btn:
         
     # ------------------------------------------
     with tab2:
-        st.subheader("🧬 2. Q6 64큐브 Core 해석 (Q6 Core Annotation)")
+        st.subheader("🧬 2. Q6 64큐브 Core 주석 패널")
         st.info("Q6 layer는 64괘·64코돈·384효사·384 directed bit-flip mutation을 병렬 배치하는 정보기하학적 해석층으로, 처방의 전통적 방향성을 6비트 상태공간의 언어로 주석화(Annotation)합니다.")
-        
         st.success(f"**💡 Q6 64큐브 핵심 변화 방향:** `{formula_info['q6_core_vector']}`")
         
         for idx, row in merged_herbs_vectors.iterrows():
             st.markdown(f"### **[약재: {row['herb_name']}]**")
             st.markdown(f"- 🏛️ **전통 역할:** {row['role']} / {row['trad_role_desc']}")
-            st.markdown(f"- 🧬 **Q6 Core 주석:** `{row['codon']} ➔ {row['amino_acid']}` | **64큐브 좌표:** n={row['q6_coord']} | **해석축:** {row['q6_axis']}")
-            st.markdown(f"- ⚠️ **[해석 주의]:** 이 매핑은 {row['herb_name']}이(가) 실제 {row['codon'][:3]} 코돈이나 {row['amino_acid'][:3]} 아미노산을 조절한다는 뜻이 아니라, 전통적 작용 방향을 코돈-아미노산 물성 벡터 언어로 주석화한 것입니다.")
+            
+            # 미고정 약재에 대한 안전 처리
+            if str(row['q6_coord']) == "미고정":
+                st.markdown(f"- 🧬 **Q6 Core 주석:** `좌표 미고정 / 추후 고정 필요` | **해석축:** {row['q6_axis']}")
+            else:
+                st.markdown(f"- 🧬 **Q6 Core 주석:** `{row['codon']} ➔ {row['amino_acid']}` | **64큐브 좌표:** n={row['q6_coord']} | **해석축:** {row['q6_axis']}")
+                
+            st.markdown(f"- ⚠️ **[해석 주의]:** 이 매핑은 {row['herb_name']}이(가) 실제 유전암호를 직접 조절한다는 뜻이 아니라, 전통적 작용 방향을 코돈-아미노산 물성 벡터 언어로 주석화한 것입니다.")
             st.divider()
 
     # ------------------------------------------
     with tab3:
-        st.subheader("🌐 3. H(3,4) 생물정보 확장 (H(3,4) Biochemical Extension)")
+        st.subheader("🌐 3. H(3,4) 생물정보 확장 패널")
         st.warning("**H(3,4) Extension Layer는 Q6 뼈대에 포함되지 않는 전체 코돈 단일염기 치환(대각 엣지 포함)을 포괄하는 생물정보학적 확장층입니다.**")
         
         st.markdown(
@@ -181,10 +225,8 @@ if analyze_btn:
         st.info(f"**[{selected_formula_name}] H(3,4) 확장 검토 지침**\n\n해당 처방을 구성하는 각 약재의 Q6 코돈 좌표를 중심으로, $H(3,4)$ 전체 치환망에서의 아미노산 물성 거리에 따른 가중치(Transition/Transversion 비율 등)를 결합하여 추가적인 기하학적 평형성을 탐색합니다.")
 
     # ------------------------------------------
-    # (세로 수직 배치 고정 완료) 가로 분할(st.columns) 없음!
-    # ------------------------------------------
     with tab4:
-        st.subheader("💎 4. 다면체 방향성 시각화 (Polyhedron Visualization)")
+        st.subheader("💎 4. 다면체 방향성 시각화 패널")
         st.info("다면체는 처방 효과를 증명하는 도구가 아니라, 처방의 복합 방향성을 구조적으로 시각화하는 정보기하학적 보조 모델입니다.")
         
         st.markdown("#### 1. 정팔면체 (Octahedron) : 6대 방향 벡터 시각화")
@@ -200,10 +242,8 @@ if analyze_btn:
         st.info("단일 처방 모듈이 인체라는 거대 공간을 채워나갈 때(공간충전), 어긋남 없이 안정적으로 확장되는 장기적 전신적 평형(Homeostasis) 유지력을 대변합니다.")
 
     # ------------------------------------------
-    # (세로 수직 배치 고정 완료) 가로 분할(st.columns) 없음!
-    # ------------------------------------------
     with tab5:
-        st.subheader("📚 5. 황제내경 병렬 해석 (Neijing Parallel Interpretation)")
+        st.subheader("📚 5. 황제내경 병렬 해석 패널")
         st.error("**[해석 주의] 본 패널은 황제내경 원문을 직접적인 생물학적 증명 자료로 사용하는 것이 아니라, 전통 생명론의 핵심 개념을 정보기하학 언어로 병렬 해석하는 교육·연구 보조 층입니다.**")
         
         st.markdown("#### 1. 황제내경 해석축 (Neijing Axis)")
@@ -216,7 +256,7 @@ if analyze_btn:
 
     # ------------------------------------------
     with tab6:
-        st.subheader("🚨 6. 안전성 확인 (Safety Filter Layer)")
+        st.subheader("🚨 6. 안전성 확인 패널")
         st.info("**이 경고는 처방 금지가 아니라, 한의사의 임상적 추가 확인 필요성을 의미합니다.**")
         
         high_alerts, med_alerts, notice_alerts = [], [], []
@@ -238,12 +278,11 @@ if analyze_btn:
             for alert in notice_alerts: st.info(alert)
             
         st.markdown("---")
-        # KeyError의 주범이었던 evidence_note 출력. 이제 에러 없이 완벽 작동합니다!
         st.dataframe(formula_safety[["herb_name", "drug_interaction_flag", "pregnancy_flag", "liver_kidney_flag", "evidence_note"]], use_container_width=True, hide_index=True)
 
     # ------------------------------------------
     with tab7:
-        st.subheader("💬 7. 환자 설명문 (Patient Output)")
+        st.subheader("💬 7. 환자 설명문 패널")
         
         if selected_formula_name == "육미지황환":
             symptom_warnings = [w for w, cond in zip(["혈당 변동", "소화 및 설사", "피로감/부종"], [med_diab, cond_dig, cond_liver]) if cond]
