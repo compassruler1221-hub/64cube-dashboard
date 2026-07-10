@@ -62,7 +62,7 @@ st.markdown(
 )
 
 # ==========================================
-# 2. 데이터베이스 세팅 (좌표 미고정 로직 반영)
+# 2. 데이터베이스 세팅 (가로분할 배제, 세로형 텍스트 구조화 반영)
 # ==========================================
 @st.cache_data
 def load_data():
@@ -229,6 +229,7 @@ if analyze_btn:
         st.subheader("💎 4. 다면체 방향성 시각화 패널")
         st.info("다면체는 처방 효과를 증명하는 도구가 아니라, 처방의 복합 방향성을 구조적으로 시각화하는 정보기하학적 보조 모델입니다.")
         
+        # [수정됨] 모든 내용을 세로로 배치 (st.columns 삭제)
         st.markdown("#### 1. 정팔면체 (Octahedron) : 6대 방향 벡터 시각화")
         st.success(poly_info['octahedron'])
         
@@ -246,6 +247,7 @@ if analyze_btn:
         st.subheader("📚 5. 황제내경 병렬 해석 패널")
         st.error("**[해석 주의] 본 패널은 황제내경 원문을 직접적인 생물학적 증명 자료로 사용하는 것이 아니라, 전통 생명론의 핵심 개념을 정보기하학 언어로 병렬 해석하는 교육·연구 보조 층입니다.**")
         
+        # [수정됨] 모든 내용을 세로로 배치 (st.columns 삭제)
         st.markdown("#### 1. 황제내경 해석축 (Neijing Axis)")
         st.markdown(f"- 🏛️ **장부축 매핑:** `{nj_info['zang_fu']}`")
         st.markdown(f"- 🩸 **기혈진액 변증축:** `{nj_info['qi_blood']}`")
@@ -271,10 +273,13 @@ if analyze_btn:
         notice_alerts.append("🟢 **[일반주의]** 복용 전후 전신 반응 주기적 확인 요망.")
 
         if high_alerts:
+            st.markdown("### **[우선순위: 높음 (High)]**")
             for alert in high_alerts: st.error(alert)
         if med_alerts:
+            st.markdown("### **[우선순위: 중간 (Medium)]**")
             for alert in med_alerts: st.warning(alert)
         if notice_alerts:
+            st.markdown("### **[우선순위: 주의 (Notice)]**")
             for alert in notice_alerts: st.info(alert)
             
         st.markdown("---")
@@ -285,8 +290,8 @@ if analyze_btn:
         st.subheader("💬 7. 환자 설명문 패널")
         
         if selected_formula_name == "육미지황환":
-            symptom_warnings = [w for w, cond in zip(["혈당 변동", "소화 및 설사", "피로감/부종"], [med_diab, cond_dig, cond_liver]) if cond]
-            warning_text = f"다만, 현재 입력된 정보가 체크되어 있으므로, 진료 과정에서 <b>{', '.join(symptom_warnings)}</b> 여부를 세밀하게 확인해야 합니다." if symptom_warnings else "복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 조절해야 합니다."
+            symptom_warnings = [w for w, cond in zip(["혈당 변동 가능성", "소화 상태 및 설사 여부", "피로감 및 부종 여부"], [med_diab, cond_dig, cond_liver]) if cond]
+            warning_text = f"다만, 현재 입력된 정보가 체크되어 있으므로, 진료 과정에서 <b>{', '.join(symptom_warnings)}</b>를 세밀하게 확인해야 합니다." if symptom_warnings else "복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 조절해야 합니다."
 
             patient_html = f"""
             <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
