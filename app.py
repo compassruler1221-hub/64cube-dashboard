@@ -64,11 +64,23 @@ st.markdown(
 @st.cache_data
 def load_data():
     formulas = pd.DataFrame({
-        "formula_id": ["F001", "F002", "F003", "F004", "F005", "F006", "F007"],
-        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환", "귀비탕", "십전대보탕", "이진탕"],
-        "indication_traditional": ["심비양허, 허번불면", "비위습탁, 복부팽만", "비위기허, 중기하함", "간신음허, 허열도한", "심비양허, 기혈양허, 불면", "기혈양허, 허로", "습담, 오심구토, 현훈"],
-        "pattern_tags": ["수렴, 안신, 내부안정", "조습, 행기, 흐름회복", "승양, 익기, 에너지부스팅", "자음, 보신, 구조물질보충", "보기, 보혈, 안신", "대보원기, 온양", "조습, 화담, 이기"],
-        "q6_core_vector": ["보존형 변화 및 수렴형 완충 주도", "급진 전환형 변화 주도", "발산/상승 및 전환형 변화 주도", "보존형 변화 및 수렴형 완충 방향 주도", "Level 3 매핑 진행 중", "Level 3 매핑 진행 중", "Level 3 매핑 진행 중"],
+        "formula_id": ["F001", "F002", "F003", "F004", "F005", "F006", "F007", "F008", "F009", "F010", "F011", "F012"],
+        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환", "귀비탕", "십전대보탕", "이진탕", "사물탕", "사군자탕", "팔진탕", "소요산", "오령산"],
+        "indication_traditional": [
+            "심비양허, 허번불면", "비위습탁, 복부팽만", "비위기허, 중기하함", "간신음허, 허열도한", 
+            "심비양허, 기혈양허, 불면", "기혈양허, 극심한 허로", "습담정체, 오심구토", "영혈부족, 혈허", 
+            "비위기허, 기단무력", "기혈양허, 만성피로", "간울비허, 흉협고만", "방광기화불리, 수습정체"
+        ],
+        "pattern_tags": [
+            "수렴, 안신", "조습, 행기", "승양, 익기", "자음, 보신", 
+            "보기, 보혈, 안신", "대보원기, 온양", "조습, 화담", "보혈, 화혈", 
+            "익기, 건비", "기혈쌍보", "소간, 해울, 건비", "이수, 삼습, 온양"
+        ],
+        "q6_core_vector": [
+            "보존형 변화 및 수렴형 완충 주도", "급진 전환형 변화 주도", "발산/상승 및 전환형 변화 주도", "보존형 변화 및 수렴형 완충 방향 주도", 
+            "Level 3 매핑 진행 중", "Level 3 매핑 진행 중", "Level 3 매핑 진행 중", "Level 3 매핑 진행 중", 
+            "Level 3 매핑 진행 중", "Level 3 매핑 진행 중", "Level 3 매핑 진행 중", "Level 3 매핑 진행 중"
+        ],
         "trad_interpret": [
             "혈(血)을 기르고 심(心)을 안정시키며 허열을 수렴하는 방향",
             "비위의 습탁을 건조하게 하고 기체의 흐름을 회복하는 방향",
@@ -76,7 +88,12 @@ def load_data():
             "소모된 바탕을 보충하고 허열과 수분 정체를 함께 조절하는 삼보삼사(三補三瀉) 방향",
             "심비(心脾)를 보익하여 기혈을 생성하고 정신을 안정시키는 방향",
             "기(氣)와 혈(血)을 전면적으로 보충하여 극도의 허로 상태를 회복하는 방향",
-            "비장(脾臟)의 습(濕)을 말리고 담(痰)을 삭여 체내 비정상적 수분 정체를 해소하는 방향"
+            "비장(脾臟)의 습(濕)을 말리고 담(痰)을 삭여 체내 비정상적 수분 정체를 해소하는 방향",
+            "혈(血)을 보하고 혈액순환을 돕는 보혈(補血)의 기본 처방",
+            "비위(脾胃)의 기를 보하는 보기(補氣)의 기본 처방",
+            "사군자탕과 사물탕을 합하여 기혈을 동시에 보충하는 기혈쌍보 처방",
+            "간의 울결을 풀어주고 비위를 튼튼히 하여 스트레스성 소화불량 등을 치료하는 방향",
+            "수분 대사를 촉진하여 체내 불필요한 수분 정체(부종 등)를 배출하는 방향"
         ]
     })
 
@@ -238,15 +255,32 @@ analyze_btn = st.sidebar.button("처방 분석 및 리포트 생성", type="prim
 # ==========================================
 if analyze_btn:
     formula_info = df_formulas[df_formulas["formula_name"] == selected_formula_name].iloc[0]
-    db_info = df_donguibogam[df_donguibogam["formula_name"] == selected_formula_name].iloc[0]
-    clinical_info = df_clinical[df_clinical["formula_name"] == selected_formula_name].iloc[0]
     
-    # 예외 처리: 데이터가 없는 신규 처방은 빈 시리즈 반환
+    # 예외 처리 1: 동의보감 데이터가 없는 신규 처방 대응
+    db_filter = df_donguibogam[df_donguibogam["formula_name"] == selected_formula_name]
+    db_info = db_filter.iloc[0] if not db_filter.empty else pd.Series({
+        "db_chapter": "데이터 수집 중", 
+        "db_pattern": "임상 데이터 우선 적용", 
+        "db_interpret": "문헌적 병증 해석 매핑이 곧 추가될 예정입니다."
+    })
+    
+    # 예외 처리 2: 임상 해석 데이터가 없는 신규 처방 대응
+    clinic_filter = df_clinical[df_clinical["formula_name"] == selected_formula_name]
+    clinical_info = clinic_filter.iloc[0] if not clinic_filter.empty else pd.Series({
+        "clinic_pattern": formula_info["indication_traditional"],
+        "clinic_structure": "Level 1 (기본 방향성 분석) 제공 중",
+        "clinic_direction": f"주요 방향: {formula_info['pattern_tags']}",
+        "clinic_caution": "- 특이 체질 및 병용 약물 일반적 주의 필요\n- 임상 증상에 따른 한의사 판단 요망",
+        "clinic_followup": "- 복용 후 소화, 수면, 대소변 등 전신 반응 관찰"
+    })
+    
+    # 예외 처리 3: 다면체 데이터가 없는 신규 처방 대응
     poly_info = df_polyhedrons[df_polyhedrons["formula_name"] == selected_formula_name]
     poly_info = poly_info.iloc[0] if not poly_info.empty else pd.Series()
     
-    nj_info = df_neijing[df_neijing["formula_name"] == selected_formula_name]
-    nj_info = nj_info.iloc[0] if not nj_info.empty else pd.Series()
+    # 예외 처리 4: 황제내경 데이터가 없는 신규 처방 대응
+    nj_filter = df_neijing[df_neijing["formula_name"] == selected_formula_name]
+    nj_info = nj_filter.iloc[0] if not nj_filter.empty else pd.Series()
 
     selected_id = formula_info["formula_id"]
     formula_herbs = df_herbs[df_herbs["formula_id"] == selected_id]
