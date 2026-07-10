@@ -44,7 +44,7 @@ assert codon_to_aa(n_to_codon(63)) == "Pro"
 # ==========================================
 # 1. 페이지 설정 및 필수 방어 가이드라인
 # ==========================================
-st.set_page_config(page_title="64큐브-다면체 처방 대시보드", layout="wide")
+st.set_page_config(page_title="한의 임상 의사결정 지원 대시보드", layout="wide")
 
 st.warning(
     "**[주의] 본 대시보드에서 한의학 처방 분석은 전통 처방의 생리적 효과를 자동으로 증명하거나 예측하는 시스템이 아닙니다.**\n\n"
@@ -52,12 +52,15 @@ st.warning(
     "- 실제 처방은 면허가 있는 한의사의 변증, 환자 병력, 검사 결과, 안전성 평가를 바탕으로 결정되어야 합니다."
 )
 
-st.title("☯️ 64큐브-다면체 기반 처방 해석 대시보드")
-st.markdown("### 처방 해석 구조 = 전통 처방 구조 + 동의보감 병증 해석 + 진맥·설진 대조 + 침구 치료 방향 + 처방 주변 변화 가능성 + 보사·승강출입 균형 + 안전성 확인")
-st.caption("연구자용 표현: Traditional_Core + Donguibogam_Layer + Q6_Core + H(3,4)_Extension + Polyhedron_Layer + Safety_Filter")
+st.title("☯️ 한의 임상 의사결정 지원 대시보드 (CDSS)")
+st.markdown("### 처방 해석 구조 = 전통 처방 구조 + 동의보감 병증 해석 + 진맥·설진 대조 + 침구 방향 + 뜸 주의 + 주변 변화 가능성 + 안전성 확인")
+
+with st.expander("🔬 연구자용 공식 보기 (Click to Expand)"):
+    st.caption("Formula_Vector = Traditional_Core + Donguibogam_Layer + Mac_Tongue_Sync + Acu_Moxa_Layer + H(3,4)_Extension + Polyhedron_Balance + Safety_Filter + Q6_Core_Annotation")
+
 st.markdown(
-    "전통 처방 구조와 동의보감 병증 해석을 **중심 설명층**으로 두고, "
-    "Q6·H(3,4)·다면체 구조는 이를 보조적으로 주석화하는 해석층으로 사용합니다."
+    "본 대시보드는 전통 처방과 동의보감 병증 해석을 중심으로, "
+    "환자의 안전성 확인과 치료 방향 정합도를 점검하는 **임상 보조 시스템**입니다."
 )
 
 # ==========================================
@@ -87,66 +90,7 @@ def load_data():
             "과도한 사려(思慮)로 심비(心脾)가 상하여 발생하는 수면 장애와 정서 불안을 다스리는 양생적 조절 방향성을 제시합니다.",
             "비위의 운화 기능이 떨어져 습(濕)이 정체된 병증에 대해 덥히고 말려 기기를 소통시키는 병리적 주석을 제공합니다.",
             "과도한 피로와 섭생 불량으로 중기가 무너져 열이 위로 뜨는 허열(虛熱)을 내리고 맑은 양기를 위로 끌어올리는 승양(升陽)의 지혜를 담고 있습니다.",
-            "선천적 바탕이 부족하거나 극심한 소모로 정(精) 고갈된 상태를 채워 체액의 고갈을 막는 근본적인 보음(補陰)의 원리를 설명합니다."
-        ]
-    })
-    
-    clinical = pd.DataFrame({
-        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
-        "clinic_pattern": [
-            "심비양허, 허번불면, 영혈 소모 동반 가능성",
-            "비위습탁, 기체, 소화불량 및 복부 팽만 동반 가능성",
-            "비위기허, 중기하함, 만성 피로 및 기력 저하 동반 가능성",
-            "간신음허, 정혈 부족, 허열, 도한, 요슬산연, 만성 소모성 상태 방향에서 검토"
-        ],
-        "clinic_structure": [
-            "- 수렴·안신: 산조인\n- 자음·청열: 지모\n- 활혈·행기: 천궁\n- 조화: 감초\n- 핵심 해석: 소모된 진액을 보충하고 허열을 진정시키는 수렴형 처방",
-            "- 조습·건비: 창출\n- 행기·제만: 후박\n- 이기·화담: 진피\n- 조화: 감초\n- 핵심 해석: 정체된 습탁을 제거하고 기운을 강하게 돌리는 배출/전환형 처방",
-            "- 승양·보기: 황기, 승마, 시호\n- 건비·익기: 인삼, 백출, 감초\n- 핵심 해석: 아래로 처진 기운을 강하게 위로 끌어올리는 발산/상승형 처방",
-            "- **삼보(三補):** 숙지황·산수유·산약\n- **삼사(三瀉):** 복령·택사·목단피\n- **핵심 해석:** 보충축과 배출·완충축이 함께 배치된 삼보삼사 균형형 처방"
-        ],
-        "clinic_direction": [
-            "- 보사: 영혈 보충과 허열 제어가 중심\n- 승강: 수렴 및 하행 안정 방향 우세\n- 출입: 외부 발산보다는 내부 저장과 안신 방향\n- 한열: 허열을 식히는 청열 완충 방향\n- 허실: 허증 중심",
-            "- 보사: 사(瀉)법 위주 (제습, 행기)\n- 승강: 탁한 것을 내리고 기운을 소통시킴\n- 출입: 내부 정체 해소 및 배출 방향\n- 한열: 조습(燥濕)을 통한 냉습(冷濕) 제어\n- 허실: 실증(습탁) 위주",
-            "- 보사: 기혈 보충 중심\n- 승강: 강력한 상승(승양) 방향 우세\n- 출입: 위기를 보충하여 체표로 에너지를 발산하는 방향\n- 한열: 기허로 인한 허열을 조절하고 따뜻하게 보함\n- 허실: 기허, 중기하함 양상 확인",
-            "- **보사:** 보충이 중심이나, 수습 조절과 허열 완충이 함께 배치됨\n- **승강:** 저장·수렴·하행 안정 방향이 우세\n- **출입:** 내부 보존과 수습 조절 방향\n- **한열:** 허열 완충 방향\n- **허실:** 허증 중심이나 수습 정체 여부 확인 필요"
-        ],
-        "clinic_caution": [
-            "- 졸음, 무기력, 진정제 병용 시 확인",
-            "- 임산부 및 심한 기허 환 신중 투여",
-            "- 고혈압, 상열감, 혈당 변동성 주의",
-            "- 소화불량·설사 경향 환자는 숙지황 등으로 인한 위장 부담 확인\n- 항응고제/항혈소판제 복용 환자는 목단피 등 혈류 관련 약재 확인\n- 당뇨약 복용 환자는 혈당 변화 확인\n- 이뇨제 복용 환자는 수분 대사 변화 확인\n- 간·신장 기능 저하 환자는 장기 복용 전 검사값 확인\n- 수술·시술 예정자는 복용 여부를 전문가와 상의"
-        ],
-        "clinic_followup": [
-            "- 수면의 질, 주간 피로도, 두근거림",
-            "- 복부 팽만감, 대변 상태, 소화력",
-            "- 만성 피로 회복 여부, 혈압, 혈당",
-            "- 소화 상태\n- 설사 여부\n- 부종 변화\n- 피로감\n- 열감·도한\n- 수면 변화\n- 혈당 변화\n- AST/ALT, Creatinine/eGFR, PT/INR 등 검사값"
-        ]
-    })
-
-    polyhedrons = pd.DataFrame({
-        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
-        "octahedron": ["보존/수렴 강함, 완충 중간, 배출/발산 낮음", "배출/전환 강함, 완충 중간, 보존 낮음", "발산/상승 및 전환축 강함, 수렴/배출 낮음", "보존/보충/수렴 강함, 완충 중간, 급진전환 낮음"],
-        "ve_axis": ["U-base (Phe, Tyr, Trp) 축 중심 분포", "C-base (Leu, Pro, His) 축 중심 분포", "A-base (Met, Ile, Asn) 축 중심 분포", "G-base (Val, Ala, Asp, Gly) 축 중심 분포"],
-        "rd_plane": [
-            "[안정화 구조] 진정 방향의 단일면 기하학적 안정화 시각화",
-            "[안정화 구조] 기행 방향의 동적 완충면 형성 시각화",
-            "[안정화 구조] 기력 회복 및 에너지 대사 관련 해석축을 지지하는 넓은 상승 평형면 시각화",
-            "**[RD 균형도 = 3:3 대칭 균형]**\n\n▶ **보존/보충 3축 (三補):** 숙지황·산약·산수유\n▶ **배출/완충 3축 (三瀉):** 복령·택사·목단피\n\n*보존·보충 중심축과 수습·허열 완충축이 마주 보며 완벽한 대칭적 쌍대(Dual) 구조를 형성함.*"
-        ]
-    })
-    
-    neijing = pd.DataFrame({
-        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
-        "zang_fu": ["심(心) · 간(肝)", "비(脾) · 위(胃)", "비(脾) · 폐(肺)", "간(肝) · 신(腎)"],
-        "qi_blood": ["음혈 소모 · 허번", "습탁 정체 · 기기 불통", "기허 · 중기하함", "음혈 · 정(精) · 구조물질 소모"],
-        "wuxing": ["木/水 평형 보조", "土 중심, 金 행기 보조", "土 중심, 木/火 상승 보조", "水 중심, 木 보조"],
-        "interpretation": [
-            "심간(心肝)의 혈을 기르고 안신(安神)하는 전통 해석을 64큐브 상태공간과 병렬 매핑",
-            "비위(脾胃)의 조습(燥濕) 및 운화(運化) 기능을 정보기하학적 동적평형 언어로 병렬 매핑",
-            "비폐(脾肺)의 기허를 보강하고 중기(中氣)를 승양(升陽)하는 전통 방향성을 상승 벡터로 병렬 매핑",
-            "간신(肝腎)의 자음보신(滋陰補腎)이라는 삼보삼사 구조를 RD 다면체의 3:3 대칭 안정화 모델로 병렬 매핑"
+            "선천적 바탕이 부족하거나 극심한 소모로 정(精)이 고갈된 상태를 채워 체액의 고갈을 막는 근본적인 보음(補陰)의 원리를 설명합니다."
         ]
     })
     
@@ -178,15 +122,15 @@ def load_data():
         "evidence_note": ["과다 복용 시 간효소 수치 상승", "일반적 용량 내 특이 주의 제한", "혈소판 응집 억제 작용", "위알도스테론증 유발 가능", "음허내열 환자 주의", "동물실험 자궁수축", "일반적 용량 내 특이 주의 제한", "면역계 자극 가능성 검토", "과량 복용 시 두근거림/혈압상승", "일반적 용량 내 특이 주의 제한", "자궁 수축 및 출혈 경향", "상열감 환자 주의", "특이 체질 간부담", "점액질로 인한 소화불량/설사", "일반적 용량 내 특이 주의 제한", "혈당 변동 가능성 관련 확인", "수분 대사 보조", "혈류 순환 관련 확인", "신장 배설 부담 가능성"]
     })
     
-    return formulas, polyhedrons, neijing, donguibogam, clinical, herbs, safety, vectors
+    return formulas, donguibogam, herbs, safety, vectors
 
-df_formulas, df_polyhedrons, df_neijing, df_donguibogam, df_clinical, df_herbs, df_safety, df_vectors = load_data()
+df_formulas, df_donguibogam, df_herbs, df_safety, df_vectors = load_data()
 
 # ==========================================
 # 패널 1: 환자 입력 패널 (Sidebar)
 # ==========================================
 st.sidebar.header("📝 환자 임상 정보 입력")
-patient_symp = st.sidebar.text_input("주증상 및 현대 진단명", placeholder="예: 소화불량, 황반변성, 디스크")
+patient_symp = st.sidebar.text_input("주증상 및 현대 진단명", placeholder="예: 소화불량, 황반변성, 피로")
 
 st.sidebar.subheader("진맥·설진 및 복진 입력")
 mac_pos = st.sidebar.selectbox("맥위 (Pulse Depth)", ["선택 안함", "부(浮)", "중(中)", "침(沈)"])
@@ -196,7 +140,6 @@ mac_shape = st.sidebar.selectbox("맥형 (Pulse Shape)", ["선택 안함", "현(
 tongue_body = st.sidebar.selectbox("설질 (Tongue Body)", ["선택 안함", "담(淡)", "홍(紅)", "암(暗)", "자(紫)", "반점"])
 tongue_coat = st.sidebar.selectbox("설태 (Tongue Coating)", ["선택 안함", "박(薄)", "후(厚)", "백(白)", "황(黃)", "니(膩)", "무태(無苔)"])
 fluid_status = st.sidebar.selectbox("진액 (Moisture)", ["선택 안함", "건조", "윤택", "치흔", "부종감"])
-abdomen = st.sidebar.selectbox("복진 (Abdomen)", ["선택 안함", "복부 냉감", "압통", "더부룩함", "긴장"])
 
 st.sidebar.subheader("안전성 체크리스트: [복용약]")
 med_anti_coag = st.sidebar.checkbox("항응고제/항혈소판제/아스피린/NSAIDs")
@@ -207,48 +150,32 @@ med_sedative = st.sidebar.checkbox("수면제/진정제")
 med_psych = st.sidebar.checkbox("항우울제/항불안제/정신과 약")
 med_immuno = st.sidebar.checkbox("스테로이드/면역억제제")
 med_cancer = st.sidebar.checkbox("항암제/표적치료제/호르몬제")
-med_antibio = st.sidebar.checkbox("항생제/항바이러스제")
-med_suppl = st.sidebar.checkbox("다른 한약·건기식·보충제 병용")
 
 st.sidebar.subheader("안전성 체크리스트: [환자 상태]")
 cond_preg = st.sidebar.checkbox("임신/수유 중")
 cond_frail = st.sidebar.checkbox("소아/고령자/허약자")
-cond_liver = st.sidebar.checkbox("간 기능 저하 또는 간질환 병력")
-cond_kidney = st.sidebar.checkbox("신장 기능 저하 또는 신장질환 병력")
+cond_liver = st.sidebar.checkbox("간/신장 기능 저하 또는 질환 병력")
 cond_cardio = st.sidebar.checkbox("심혈관 질환/부정맥/심부전")
-cond_bp_var = st.sidebar.checkbox("고혈압 또는 저혈압 변동")
-cond_diab_var = st.sidebar.checkbox("당뇨/저혈당 병력")
+cond_bp_var = st.sidebar.checkbox("고혈압/저혈압 변동")
 cond_dig = st.sidebar.checkbox("만성 소화불량/설사/위장장애")
-cond_allergy = st.sidebar.checkbox("알레르기/약물 과민반응 병력")
-cond_autoimm = st.sidebar.checkbox("자가면역질환")
-cond_cancer = st.sidebar.checkbox("암 치료 중 또는 치료 직후")
 cond_surgery = st.sidebar.checkbox("수술/시술/치과치료 예정")
-cond_alcohol = st.sidebar.checkbox("음주량 많음")
-cond_lab = st.sidebar.checkbox("최근 검사 이상 (간/신장/혈액)")
 
 st.sidebar.subheader("임상 검사값 및 특이사항 입력")
 lab_ast_alt = st.sidebar.text_input("AST/ALT:", value="45 / 52 (U/L)")
 lab_creatinine = st.sidebar.text_input("Creatinine/eGFR:", value="1.2 mg/dL / 58")
-lab_pt_inr = st.sidebar.text_input("PT/INR:", value="1.0 / 1.1")
-lab_hba1c = st.sidebar.text_input("공복혈당/HbA1c:", value="126 mg/dL / 6.8%")
 lab_bp = st.sidebar.text_input("혈압 (mmHg):", value="145 / 90")
 lab_current_meds = st.sidebar.text_area("현재 복용약 상세:", value="아스피린 장용정 100mg\n로사르탄 50mg")
-lab_allergy_hist = st.sidebar.text_input("알레르기 상세:", value="특이사항 없음")
-lab_surgery_date = st.sidebar.text_input("수술/시술 예정일:", value="2026-08-15 (임플란트 시술)")
 
 st.sidebar.divider()
 selected_formula_name = st.sidebar.selectbox("분석할 한의학 처방 선택", df_formulas["formula_name"])
-analyze_btn = st.sidebar.button("처방 분석 및 리포트 생성", type="primary")
+analyze_btn = st.sidebar.button("처방 분석 및 정합도 확인", type="primary")
 
 # ==========================================
-# 메인 화면: 12단계 모듈 분석
+# 메인 화면: 12단계 모듈 (한의사 1열 최적화)
 # ==========================================
 if analyze_btn:
     formula_info = df_formulas[df_formulas["formula_name"] == selected_formula_name].iloc[0]
-    poly_info = df_polyhedrons[df_polyhedrons["formula_name"] == selected_formula_name].iloc[0]
-    nj_info = df_neijing[df_neijing["formula_name"] == selected_formula_name].iloc[0]
     db_info = df_donguibogam[df_donguibogam["formula_name"] == selected_formula_name].iloc[0]
-    clinical_info = df_clinical[df_clinical["formula_name"] == selected_formula_name].iloc[0]
     selected_id = formula_info["formula_id"]
     
     formula_herbs = df_herbs[df_herbs["formula_id"] == selected_id]
@@ -256,173 +183,182 @@ if analyze_btn:
     merged_herbs_vectors = pd.merge(formula_herbs, df_vectors, on="herb_name", how="left")
 
     tabs = st.tabs([
-        "1. 전통 처방 Core 패널", 
-        "2. 동의보감 병렬 해석 패널",
-        "3. 진맥·설진 대조 패널",
-        "4. 한의사용 임상 요약 패널",
-        "5. 침구 치료 방향 패널",
-        "6. 뜸 치료 방향 패널",
-        "7. 처방 주변 변화 가능성 패널", 
-        "8. 보사·승강출입 균형 패널", 
-        "9. Q6 64큐브 Core 주석 패널", 
-        "10. 황제내경 병렬 해석 패널", 
-        "11. 안전성 확인 패널", 
-        "12. 환자 설명문 패널"
+        "1. 한의사용 통합 요약",
+        "2. 전통 처방 Core", 
+        "3. 동의보감 병렬 해석",
+        "4. 진맥·설진 대조",
+        "5. 침구 치료 방향",
+        "6. 뜸 치료 방향",
+        "7. 처방 주변 변화 가능성", 
+        "8. 보사·승강출입 균형", 
+        "9. Q6 64큐브 주석", 
+        "10. 황제내경 해석",
+        "11. 안전성 세부 확인", 
+        "12. 환자 설명문"
     ])
     
     # ------------------------------------------
     with tabs[0]:
-        st.subheader("📌 1. 전통 처방 Core 패널")
-        if patient_symp:
-            st.error(
-                f"**⚠️ [임상 정합도 확인 알림]**\n\n"
-                f"입력된 주증상/현대 진단명(**'{patient_symp}'**)과 선택 처방의 전통 변증 방향(**'{formula_info['indication_traditional']}'**)이 직접 일치하지 않을 수 있습니다. "
-                f"본 처방은 특정 병명 자체보다 환자의 전신 변증, 허실, 한열, 소화력, 동반 증상을 종합한 한의사의 임상적 판단을 기준으로 최종 검토해야 합니다."
-            )
+        st.subheader(f"🧑‍⚕️ 1. [{selected_formula_name}] 한의사용 통합 요약 패널")
+        st.info(f"**전통 변증 방향:** {formula_info['indication_traditional']}\n\n**해석:** {formula_info['trad_interpret']}")
+        
+        # [NEW] 처방 정합도 점검표 동적 생성
+        matches, cautions, followups = [], [], []
+        if cond_surgery: cautions.append("수술 예정 → 출혈 관련 약재 및 복용 중단 여부 전문가 판단 필요")
+
+        if selected_formula_name == "보중익기탕":
+            matches.append("피로, 기허, 식욕저하 등 보기(補氣) 방향과 정합 가능성")
+            if mac_force == "허(虛)" or mac_shape in ["약(弱)", "완(緩)"]: matches.append("맥상(허/약/완) → 보기 방향과 정합")
+            if tongue_body == "담(淡)" or fluid_status == "치흔": matches.append("설상(담/치흔) → 기허 방향과 정합")
             
-        st.info(f"**전통 변증 방향:** {formula_info['indication_traditional']} ({formula_info['pattern_tags']})\n\n**전통 처방 해석:** {formula_info['trad_interpret']}")
+            if med_bp or cond_bp_var: cautions.append("혈압 변동/혈압약 복용 → 승양(상승) 방향 과잉 반응(두근거림 등) 확인")
+            if med_diab: cautions.append("당뇨약 복용 → 인삼, 감초 관련 혈당 변화 확인")
+            if cond_cardio: cautions.append("심혈관/부정맥 → 심계 반응 확인")
+            if cond_dig: cautions.append("만성 소화불량 → 습담·식적 뚜렷할 경우 처방 방향 재검토")
+            followups = ["혈압", "두근거림", "불면", "혈당", "소화상태", "피로감", "상열감"]
+
+        elif selected_formula_name == "육미지황환":
+            matches.append("피로, 소모성 상태, 간신음허·정혈 부족 방향과 정합 가능성")
+            if mac_force == "허(虛)" or mac_pos == "침(沈)" or mac_shape == "세(細)": matches.append("맥상(침/세/허) → 자음보신 방향과 정합")
+            
+            if cond_dig: cautions.append("만성 소화불량/설사 → 숙지황으로 인한 위장 부담(점액질) 확인 필요")
+            if med_anti_coag: cautions.append("항응고제 복용 → 목단피 관련 출혈 경향 확인 필요")
+            if med_diab: cautions.append("당뇨약 복용 → 산약 등 관련 혈당 변화 확인")
+            followups = ["소화불량/설사 발생 여부", "부종 변화", "열감·도한 변화", "피로감 변화", "혈당 변화", "간/신장 검사수치 (장기 복용 시)"]
+            
+        elif selected_formula_name == "산조인탕":
+            matches.append("불면, 불안, 심계 등 허번불면 방향과 정합 가능성")
+            if mac_shape in ["현(弦)", "세(細)"]: matches.append("맥상(현/세) → 간혈 부족 방향과 정합")
+            
+            if med_sedative or med_psych: cautions.append("수면제/항우울제 복용 → 과도한 진정 작용 및 주간 졸림 확인")
+            if cond_dig: cautions.append("소화불량/설사 → 위장 부담 확인")
+            if med_anti_coag: cautions.append("항응고제 복용 → 천궁 등 활혈 약재 관련 확인")
+            followups = ["수면의 질 및 시간", "주간 무기력/졸음 여부", "두근거림/불안감 변화", "소화 상태"]
+
+        elif selected_formula_name == "평위산":
+            matches.append("소화불량, 식적, 가스 팽만 등 비위습탁 방향과 정합 가능성")
+            if tongue_coat in ["후(厚)", "니(膩)", "백(白)"]: matches.append("설태(후/니/백) → 습탁 방향과 정합")
+            
+            if cond_preg: cautions.append("임신/수유 중 → 신중투여 요망 (자궁수축 주의)")
+            if fluid_status == "건조" or tongue_coat == "무태(無苔)": cautions.append("진액 고갈/음허 양상 → 조습(燥濕) 작용으로 인한 진액 손상 우려")
+            followups = ["복부 팽만감 감소 여부", "가스/대변 상태", "소화력 회복 여부", "입마름 발생 여부"]
+
+        st.markdown("### 🚨 처방 정합도 점검표")
+        
+        st.markdown("#### ✅ 정합 (입력된 환자 정보와 맞는 부분)")
+        for m in (matches if matches else ["입력된 정보로 판별된 뚜렷한 정합 포인트 없음"]): st.success(f"- {m}")
+        
+        st.markdown("#### ⚠️ 주의 (입력된 환자 정보와 어긋나거나 확인이 필요한 부분)")
+        for c in (cautions if cautions else ["특이 주의사항 없음"]): st.warning(f"- {c}")
+            
+        st.markdown("#### 🔍 추적 관찰 (복용 후 추적해야 할 항목)")
+        st.info("- " + "\n- ".join(followups))
+        
+        st.divider()
+        st.markdown("#### 🧭 침구·뜸 방향 요약")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**침 치료 방향**")
+            if selected_formula_name == "보중익기탕": st.markdown("- 비위기허 및 중기하함 보강\n- 보기·승양 방향 검토")
+            elif selected_formula_name == "육미지황환": st.markdown("- 간신음허 보강 및 허열 완충\n- 보법 또는 평보평사 검토")
+            else: st.markdown("- 변증에 따른 평보평사 위주")
+        with col2:
+            st.markdown("**뜸 치료 방향**")
+            if selected_formula_name == "보중익기탕": st.markdown("- 기허 뚜렷 시 온보 검토\n- 고혈압/상열감 환자 온열 자극 주의")
+            elif selected_formula_name == "육미지황환": st.markdown("- 하복부 냉감 시 검토\n- 허열/도한/당뇨성 감각저하 시 강한 온열 주의")
+            else: st.markdown("- 냉증 동반 시 검토\n- 실열 양상 시 주의")
+
+    # ------------------------------------------
+    with tabs[1]:
+        st.subheader("📌 2. 전통 처방 Core 패널")
+        st.info(f"**전통 변증 방향:** {formula_info['indication_traditional']}\n\n**전통 처방 해석:** {formula_info['trad_interpret']}")
         st.markdown("#### 군신좌사(君臣佐使) 네트워크")
         st.dataframe(formula_herbs[["role", "herb_name", "trad_role_desc", "dose_range", "four_qi", "five_flavor", "meridian_entry"]], use_container_width=True, hide_index=True)
         
     # ------------------------------------------
-    with tabs[1]:
-        st.subheader("📖 2. 동의보감 병렬 해석 패널 (Donguibogam Layer)")
-        st.error("**[해석 주의] 동의보감 해석 패널은 처방의 전통적 병증 이해, 양생, 장부·기혈·담음·허실·한열 관점을 한국 한의학 원전 맥락에서 정리하는 층입니다. 이는 동의보감이 현대 유전암호나 코돈 구조를 직접 설명했다는 뜻이 아니라, 전통 한의학의 병증·처방 해석 언어를 본 대시보드의 전통 처방 Core layer에 보강하는 원전 주석층입니다.**")
-        
+    with tabs[2]:
+        st.subheader("📖 3. 동의보감 병렬 해석 패널")
+        st.error("**[해석 주의] 이 패널은 처방의 병증 이해와 양생론을 한국 한의학 원전 맥락에서 정리하는 층입니다.**")
         st.markdown(f"#### 1. {selected_formula_name} 문헌적 병증 해석")
         st.markdown(f"- 📜 **동의보감 편제:** `{db_info['db_chapter']}`")
         st.markdown(f"- 🤒 **핵심 적응증 및 병리:** `{db_info['db_pattern']}`")
-        
         st.markdown("#### 2. 양생(養生) 및 병리 조절 방향성")
         st.info(db_info['db_interpret'])
 
     # ------------------------------------------
-    with tabs[2]:
-        st.subheader("📊 3. 진맥·설진 대조 패널")
+    with tabs[3]:
+        st.subheader("📊 4. 진맥·설진 대조 패널")
         st.info("진맥·설진 정보는 대시보드가 자동 판정하는 값이 아니라, 한의사가 직접 확인한 소견을 입력하여 선택 처방의 변증 방향과 정합성을 대조하기 위한 참고 정보입니다.")
         
-        st.markdown(f"**입력된 환자 소견:** 맥[{mac_pos}, {mac_rate}, {mac_force}, {mac_shape}] | 설[{tongue_body}, {tongue_coat}, {fluid_status}] | 복부[{abdomen}]")
+        st.markdown(f"**입력된 환자 소견:** 맥[{mac_pos}, {mac_rate}, {mac_force}, {mac_shape}] | 설[{tongue_body}, {tongue_coat}, {fluid_status}]")
         
         if selected_formula_name == "육미지황환":
-            st.success("**육미지황환 방향과 잘 맞는 입력 (참고용)**\n- 맥: 침(沈), 세(細), 삭(數), 허맥(虛) 경향\n- 설: 홍(紅) 또는 담홍(淡紅), 무태(無苔) 또는 건조 경향\n- 증상: 도한, 오심번열, 요슬산연, 피로, 구건")
-            st.warning("**주의해야 할 입력 (처방 재검토 요망)**\n- 설태가 두껍고 니(膩)하며 식체·습담이 강함\n- 설사가 잦고 위장이 약한 복진 소견\n- 실열·습열 소견이 뚜렷함")
+            st.success("**[정합 소견]**\n- 맥: 침(沈), 세(細), 삭(數), 약(弱) 경향\n- 설: 홍(紅) 또는 담홍(淡紅), 소태(少苔) 경향\n- 증상: 도한, 오심번열, 요슬산연")
+            st.warning("**[주의 소견]**\n- 설태가 후니(厚膩)함 (식체·습담)\n- 복부 냉감 및 잦은 설사 (위장 허약)")
+            st.error("**[재검토 요망 소견]**\n- 실열·습열 소견이 뚜렷함\n- 맥이 실·활·삭하고 열상이 강함")
         elif selected_formula_name == "보중익기탕":
-            st.success("**보중익기탕 방향과 잘 맞는 입력 (참고용)**\n- 맥: 허(虛), 약(弱), 연(軟) 경향\n- 설: 담(淡), 박백(薄白), 치흔(齒痕) 경향\n- 증상: 만성 피로, 기허하함, 식욕 부진, 복부 무력감")
-            st.warning("**주의해야 할 입력 (처방 재검토 요망)**\n- 맥이 현(弦), 긴(緊)하거나 삭(數)함\n- 실열 또는 상열감이 강한 소견\n- 뚜렷한 식적이나 담음 소견")
-        elif selected_formula_name == "평위산":
-            st.success("**평위산 방향과 잘 맞는 입력 (참고용)**\n- 맥: 활(滑), 유(濡) 경향\n- 설: 태가 후(厚)하고 니(膩)함 (백니태 중심)\n- 증상: 복부 더부룩함, 식적, 오심, 가스 정체")
-            st.warning("**주의해야 할 입력 (처방 재검토 요망)**\n- 맥이 세(細)하고 삭(數)함\n- 진액이 극도로 건조하거나 무태(無苔)인 음허 소견\n- 뚜렷한 허열 양상")
+            st.success("**[정합 소견]**\n- 맥: 허(虛), 약(弱), 완(緩) 경향\n- 설: 담(淡), 치흔(齒痕), 백태 경향\n- 증상: 기단, 식욕저하, 내장하수감")
+            st.warning("**[주의 소견]**\n- 상열감, 고혈압, 심계, 불면")
+            st.error("**[재검토 요망 소견]**\n- 실열, 습열, 뚜렷한 식적이나 담음")
         elif selected_formula_name == "산조인탕":
-            st.success("**산조인탕 방향과 잘 맞는 입력 (참고용)**\n- 맥: 현(弦)세(細), 세삭(細數) 경향\n- 설: 홍(紅)하고 소태(少苔)\n- 증상: 허번불면, 두근거림, 야간 열감, 구건")
-            st.warning("**주의해야 할 입력 (처방 재검토 요망)**\n- 맥이 활실(滑實)하거나 현긴(弦紧)함\n- 실열성 불면, 분노, 두통이 동반된 간화상염 양상\n- 담탁으로 인한 불면 (담열내요 등)")
-
-    # ------------------------------------------
-    with tabs[3]:
-        st.subheader("🧑‍⚕️ 4. 한의사용 임상 요약 패널")
-        st.warning(
-            "본 패널은 Q6, H(3,4), 다면체 분석 결과를 한의사가 익숙한 "
-            "**변증·보사·승강출입·한열허실 언어**로 다시 번역한 설명층입니다. "
-            "자동 진단 또는 자동 처방 도구가 아닙니다."
-        )
-
-        st.subheader("1. 변증 요약")
-        st.info(clinical_info['clinic_pattern'])
-
-        st.subheader("2. 처방 구조 요약")
-        st.markdown(clinical_info['clinic_structure'])
-
-        st.subheader("3. 보사·승강출입 해석")
-        st.markdown(clinical_info['clinic_direction'])
-
-        st.subheader("4. Q6/H(3,4)/다면체 결과의 한의학 번역")
-        translate_df = pd.DataFrame([
-            {"연구자용 표현": "Q6 Core", "한의사용 해석": "처방의 중심 변증 방향"},
-            {"연구자용 표현": "H(3,4) Extension", "한의사용 해석": "중심 방향 주변의 변증 전환 가능성을 보는 보조 지도"},
-            {"연구자용 표현": "다면체 방향성", "한의사용 해석": "보사·승강출입·수렴발산의 균형 구조"},
-            {"연구자용 표현": "RD 3:3 안정화", "한의사용 해석": "삼보와 삼사의 보충-배출 균형 구조"},
-            {"연구자용 표현": "Octahedron 6방향", "한의사용 해석": "보존·보충·수렴·완충·발산·배출의 기본 방향성"},
-            {"연구자용 표현": "VE 12축", "한의사용 해석": "약재 방향성을 더 세밀하게 나누는 보조 분류"},
-            {"연구자용 표현": "TO 확장망", "한의사용 해석": "처방 방향이 전신 네트워크로 확산되는 양상"}
-        ])
-        st.dataframe(translate_df, use_container_width=True, hide_index=True)
-
-        st.subheader("5. 임상 주의 포인트")
-        st.markdown(clinical_info['clinic_caution'])
-
-        st.subheader("6. 추적 관찰 항목")
-        st.markdown(clinical_info['clinic_followup'])
+            st.success("**[정합 소견]**\n- 맥: 세(細), 약(弱), 현세(弦細) 경향\n- 설: 담홍 또는 홍, 소태\n- 증상: 허번불면, 심계, 피로")
+            st.warning("**[주의 소견]**\n- 주간 졸림, 진정제 병용, 간·신장 기능 저하")
+            st.error("**[재검토 요망 소견]**\n- 실열성 불면, 담열이 뚜렷한 불면")
+        else:
+            st.markdown("- 선택 처방에 대한 일반 변증 정합성 대조 필요")
 
     # ------------------------------------------
     with tabs[4]:
         st.subheader("📍 5. 침구 치료 방향 패널 (Acupuncture)")
-        st.info("본 패널은 침 치료를 자동으로 처방하는 기능이 아니라, 선택 처방의 변증 방향에 따라 한의사가 검토할 수 있는 침구 치료 원칙과 주의점을 정리하는 보조 설명층입니다.")
+        st.info("본 패널은 침 치료를 자동으로 처방하는 기능이 아니라, 선택 처방의 변증 방향에 따라 한의사가 검토할 수 있는 치료 원칙과 주의점을 정리하는 보조 설명층입니다.")
         
         if selected_formula_name == "육미지황환":
             st.markdown("""
-            **[육미지황환 병행 침 치료 원칙]**
-            - **방향:** 간신음허(肝腎陰虛) 및 정혈 부족 보강 방향 확인
-            - **수법:** 보법(補法) 또는 평보평사(平補平瀉) 중심
-            - **주의점:** 
-                - 허열(虛熱)이 동반된 경우 과도한 강자극이나 온침은 진액 소모 우려로 주의
-                - 수습 정체가 뚜렷한 경우 이수(利水) 및 건비(健脾) 방향 병행 고려
-                - 위장 허약자는 복부 침 치료 시 소화 상태 반응 확인
+            **[침 치료 방향]**
+            - 간·신 축 보강 및 정혈·진액 부족 방향 확인
+            - 보법 또는 평보평사 중심 검토
+            - 허열이 동반되면 강자극 주의
+            - 수습 정체가 있으면 이수·건비 방향 병행 검토
+
+            **[검토 가능한 혈위군]**
+            - 신·간·비 경락축
+            - 자음·보신 축 / 허열 완충 축
+            
+            **[주의]** 실열, 습열, 식체가 뚜렷하면 단순 보법 중심으로 가면 안 됩니다.
             """)
         elif selected_formula_name == "보중익기탕":
             st.markdown("""
-            **[보중익기탕 병행 침 치료 원칙]**
-            - **방향:** 비위기허(脾胃氣虛) 및 중기하함(中氣下陷) 보강 방향 확인
-            - **수법:** 보기(補氣) 및 승양(升陽)을 위한 보법 중심
-            - **주의점:** 
-                - 상열감, 고혈압, 심계(두근거림)가 동반된 경우 승양(상승) 기운이 과해지지 않도록 주의
-                - 실열이나 습열이 동반된 뚜렷한 실증 환자에게는 보법 적용 시 주의
-            """)
-        elif selected_formula_name == "평위산":
-            st.markdown("""
-            **[평위산 병행 침 치료 원칙]**
-            - **방향:** 비위(脾胃) 조습(燥濕) 및 기기 소통(행기) 방향 확인
-            - **수법:** 사법(瀉法) 위주 또는 기운을 돌려주는 행기 수법
-            - **주의점:** 
-                - 탁한 것을 내리고 기운을 강하게 소통시키는 방향이므로 기혈이 심하게 허약한 환자는 자극량 조절
-            """)
-        elif selected_formula_name == "산조인탕":
-            st.markdown("""
-            **[산조인탕 병행 침 치료 원칙]**
-            - **방향:** 심비양허(心脾兩虛) 및 허번불면(虛煩不眠) 안정 방향 확인
-            - **수법:** 안신(安神), 수렴, 진정 방향의 완만한 조절
-            - **주의점:** 
-                - 과도한 강자극(사법)보다는 이완과 수면 유도를 위한 부드러운 자극 선호
-                - 수면제나 진정제를 병용 중인 환자는 과도한 반응 저하 여부 확인
+            **[침 치료 방향]**
+            - 비위기허·중기하함 확인 및 보기·승양 방향
+            - 평보평사 또는 보법 중심 검토
+            - 상열감, 고혈압, 심계, 불면이 있으면 승양 과잉 반응 확인
+
+            **[검토 가능한 혈위군]**
+            - 비·위 경락축
+            - 중기 보강 축 / 승양 축
             """)
 
     # ------------------------------------------
     with tabs[5]:
         st.subheader("🔥 6. 뜸 치료 방향 패널 (Moxibustion)")
-        st.warning("**[주의]** 뜸 치료는 화상, 알레르기, 피부 감염 등의 이상 반응이 보고되어 있으므로, 뜸을 기계적으로 권장하지 않으며 반드시 한의사의 안전성 평가(감각 저하, 당뇨병 유무 등) 후 시술되어야 합니다.")
+        st.warning("**[주의]** 뜸 치료는 화상, 알레르기, 피부 감염 등의 이상 반응 위험이 있으므로 뜸 가능성 검토와 주의조건(당뇨성 말초신경병증 등) 확인이 필수입니다.")
         
         if selected_formula_name == "육미지황환":
             st.markdown("""
-            **[육미지황환 병행 뜸 치료 방향]**
-            - 육미지황환은 자음(滋陰) 및 허열 완충 방향이므로, **무조건 온열 자극을 강하게 주는 뜸 방향으로 해석하면 안 됩니다.**
-            - **뜸 검토 가능:** 하복부 냉감, 뚜렷한 한증(寒證)이나 양허(陽虛)가 동반된 경우
-            - **뜸 주의 요망:** 오심번열, 도한, 구건 등 허열이나 실열 양상이 뚜렷할 때. 당뇨성 감각저하(말초신경병증) 환자의 화상 위험.
+            **육미지황환은 자음·허열 완충 방향이므로, 무조건 온열 자극을 강하게 주는 뜸 방향으로 해석하면 안 됩니다.**
+            
+            **🟢 뜸 검토 가능:** 하복부 냉감, 허한 동반, 소화력 저하와 양허가 함께 있을 때
+            
+            **🔴 뜸 주의/재검토:** 
+            - 오심번열, 도한, 구건, 실열 양상
+            - 당뇨성 말초신경병증, 피부 감각 저하
+            - 피부질환, 상처, 화상 위험군
             """)
         elif selected_formula_name == "보중익기탕":
             st.markdown("""
-            **[보중익기탕 병행 뜸 치료 방향]**
-            - **뜸 검토 가능:** 비위허한, 복부 냉감, 뚜렷한 기허(氣虛) 양상 시 온보(溫補) 방향으로 검토
-            - **뜸 주의 요망:** 상열감, 고혈압, 불면, 심계 등이 동반된 경우 과도한 상승·온열 자극으로 인한 부작용 주의
-            """)
-        elif selected_formula_name == "평위산":
-            st.markdown("""
-            **[평위산 병행 뜸 치료 방향]**
-            - **뜸 검토 가능:** 위장관의 한습(寒濕) 정체, 복냉(腹冷)이 동반된 소화불량 시 온중산한(溫中散寒) 방향으로 검토
-            - **뜸 주의 요망:** 조습(燥濕) 작용이 강하므로 진액이 심하게 고갈된 환자에게 잦은 뜸 시술 주의
-            """)
-        elif selected_formula_name == "산조인탕":
-            st.markdown("""
-            **[산조인탕 병행 뜸 치료 방향]**
-            - **뜸 검토 가능:** 허한성 불면 및 전신 냉감이 동반될 때 완만한 온보 방향으로 검토
-            - **뜸 주의 요망:** 열감, 번조, 구건 등이 뚜렷할 때 강한 뜸 자극 시 허번(虛煩) 악화 우려
+            **🟢 뜸 검토 가능:** 비위허한, 복부 냉감, 기허 피로, 중기하함
+            
+            **🔴 뜸 주의/재검토:** 상열감, 고혈압, 심계, 불면, 안면홍조 등 상승 기운이 이미 뚜렷한 경우
             """)
 
     # ------------------------------------------
@@ -430,10 +366,7 @@ if analyze_btn:
         st.subheader("🌐 7. 처방 주변 변화 가능성 패널")
         st.caption("연구자용 구조명: H(3,4) Extension")
 
-        st.warning(
-            "이 패널은 처방의 중심 방향에서 벗어날 수 있는 주변 변화 가능성을 한의학적으로 정리한 보조 지도입니다. "
-            "약재가 유전암호를 직접 조절한다는 뜻이 아니라, 처방 좌표 주변의 변화 가능성을 한의학적 주의점으로 번역한 참고층입니다."
-        )
+        st.warning("이 패널은 처방의 중심 방향에서 벗어날 수 있는 주변 변화 가능성을 한의학적으로 정리한 보조 지도입니다. 약재가 실제 유전암호를 조절한다는 뜻이 아닙니다.")
 
         st.markdown("""
         ### 🔑 한의사용 해석
@@ -441,7 +374,6 @@ if analyze_btn:
         """)
 
         if selected_formula_name == "보중익기탕":
-            st.subheader("🎯 보중익기탕 주변 변화 가능성")
             st.info("중심 방향: 비위기허, 중기하함, 보기, 승양")
             st.markdown("""
             #### 1. 승양 과잉 방향
@@ -449,53 +381,22 @@ if analyze_btn:
             - 고혈압 또는 심계가 있는 환자는 반응 관찰 필요
             #### 2. 보익 과잉 방향
             - 식체, 더부룩함, 복부 팽만, 소화불량 확인
-            - 습담·식적이 뚜렷한 환자는 먼저 소화 상태 확인
-            #### 3. 혈당·혈압 변동 방향
-            - 인삼, 감초 등과 관련하여 당뇨약·혈압약 복용 환자 확인
-            - 복용 전후 혈당, 혈압 변화 관찰
-            #### 4. 약물 병용 주의 방향
+            #### 3. 약물 병용 주의 방향
             - 감초: 이뇨제·혈압약 병용 확인
-            - 당귀: 항응고제/항혈소판제 병용 확인
-            - 시호: 간 기능 저하 또는 간효소 상승 병력 확인
+            - 당귀: 항응고제 병용 확인
+            - 인삼: 혈당 변화 관찰
             """)
-
         elif selected_formula_name == "육미지황환":
-            st.subheader("🎯 육미지황환 주변 변화 가능성")
             st.info("중심 방향: 간신음허, 정혈 부족, 허열, 자음, 보신")
             st.markdown("""
             #### 1. 보음·보신 부담 방향
-            - 소화불량, 더부룩함, 설사 경향 확인
-            - 숙지황 등으로 인한 위장 부담 가능성 확인
+            - 소화불량, 더부룩함, 설사 경향 확인 (숙지황 부담)
             #### 2. 수습 조절 방향
             - 부종, 소변 상태, 몸이 무거운 느낌 확인
-            - 택사·복령 관련 수분 대사 방향 확인
-            #### 3. 허열 완충 방향
-            - 도한, 오심번열, 열감, 수면 변화 확인
-            - 실열이 뚜렷한 경우 처방 방향 재검토
-            #### 4. 약물 병용 주의 방향
-            - 항응고제/항혈소판제 복용 시 목단피 확인
-            - 당뇨약 복용 시 혈당 변화 확인
-            - 간·신장 기능 저하 시 장기 복용 전 검사값 확인
+            #### 3. 약물 병용 주의 방향
+            - 목단피: 항응고제 병용 확인
+            - 당뇨약 복용 시 혈당 변화 및 간·신장 기능 확인
             """)
-
-        elif selected_formula_name == "산조인탕":
-            st.subheader("🎯 산조인탕 주변 변화 가능성")
-            st.info("중심 방향: 허번불면, 안신, 수렴, 내부 안정")
-            st.markdown("""
-            #### 1. 진정 과잉 방향
-            - 졸림, 무기력, 반응 저하 확인
-            - 수면제·진정제·항우울제 병용 확인
-            #### 2. 허열·번조 방향
-            - 야간 열감, 가슴 답답함, 불안, 입마름 확인
-            - 실열성 불면인지 허번불면인지 구분 필요
-            #### 3. 혈류 관련 주의 방향
-            - 천궁 등 혈류 관련 약재와 항응고제 병용 확인
-            #### 4. 소화 상태
-            - 복부 불편감, 설사, 식욕 저하 여부 확인
-            """)
-        else:
-            st.subheader(f"🎯 {selected_formula_name} 주변 변화 가능성")
-            st.info(f"중심 방향: {formula_info['pattern_tags']}")
 
     # ------------------------------------------
     with tabs[7]:
@@ -506,176 +407,56 @@ if analyze_btn:
 
         st.markdown("""
         ### 🔑 한의사용 해석
-        다면체 분석은 도형을 보라는 뜻이 아니라, **처방이 보충 중심인지, 배출 중심인지, 수렴·완충 중심인지, 전신 확산 방향인지 확인하는 균형 지도**입니다.
+        다면체 분석은 도형 자체를 보라는 뜻이 아니라, **처방이 보충 중심인지, 배출 중심인지, 수렴·완충 중심인지 확인하는 균형 지도**입니다.
+        - **정팔면체 Octahedron** → 6대 기본 방향성 (보존·보충·수렴·완충·발산·배출)
+        - **마름모십이면체 RD** → 삼보삼사 등 보충-배출 축의 대칭 균형
         """)
 
         if selected_formula_name == "육미지황환":
-            st.subheader("육미지황환의 보사·승강출입 균형")
-            st.success("핵심 해석: 단순 보약이 아니라, 삼보와 삼사가 함께 배치된 보충-배출 균형형 처방")
+            st.success("핵심 해석: 삼보와 삼사가 함께 배치된 보충-배출 균형형 처방")
             st.markdown("""
-            #### 1. 보사 균형
+            #### 1. 보사 균형 (RD 3:3 대칭)
             - **보충축:** 숙지황·산수유·산약
             - **배출·완충축:** 복령·택사·목단피
-            - 해석: 보음·보신만 강조되는 처방이 아니라, 수습 조절과 허열 완충이 함께 배치됨
+            - 해석: 보음만 강조되는 처방이 아니라, 수습 조절과 허열 완충이 함께 배치됨
             #### 2. 승강출입
-            - 저장·수렴·보존 방향이 강함
-            - 급격한 발산이나 공하 방향은 낮음
-            - 내부 진액과 정혈을 보존하는 방향으로 해석
+            - 저장·수렴·보존 방향이 강하며, 급격한 발산이나 공하 방향은 낮음
             #### 3. 한열허실
-            - 허증 중심, 허열 완충 방향
-            - 수습 정체가 동반되는지 확인 필요
-            #### 4. 임상 확인
-            - 소화불량, 설사 경향, 부종, 소변 상태
-            - 도한, 열감, 수면 변화
-            - 항응고제, 당뇨약, 이뇨제 병용 여부, 간·신장 기능
-            """)
-        elif selected_formula_name == "보중익기탕":
-            st.subheader("보중익기탕의 보사·승강출입 균형")
-            st.success("핵심 해석: 보기·승양 방향이 강한 상승형 처방")
-            st.markdown("""
-            #### 1. 보사 균형
-            - 보법 중심, 비위기허와 중기하함을 보완하는 방향
-            - 사법이나 배출축은 상대적으로 약함
-            #### 2. 승강출입
-            - 상승·발산 방향이 우세
-            - 기허하함 환자에게 적합한 방향에서 검토
-            #### 3. 한열허실
-            - 허증 중심
-            - 실열·습열이 뚜렷한 경우 재검토 필요, 상열감이 있는 환자는 반응 확인
-            #### 4. 임상 확인
-            - 혈압 상승 경향, 두근거림, 불면, 안면홍조
-            - 식체, 복부 더부룩함
-            - 당뇨약, 혈압약, 이뇨제 병용 여부
-            """)
-        elif selected_formula_name == "산조인탕":
-            st.subheader("산조인탕의 보사·승강출입 균형")
-            st.success("핵심 해석: 수렴·안신·내부 안정 방향이 강한 처방")
-            st.markdown("""
-            #### 1. 보사 균형
-            - 보혈·자음과 안정 방향
-            - 과도한 발산을 줄이고 내부 안정 방향으로 해석
-            #### 2. 승강출입
-            - 내부 수렴 방향이 강함
-            - 수면과 정서 안정 축을 중심으로 검토
-            #### 3. 한열허실
-            - 허번불면 방향에서 검토
-            - 실열성 불면과 구분 필요
-            #### 4. 임상 확인
-            - 졸림, 무기력, 반응 저하
-            - 수면제·진정제·항우울제 병용 여부, 간·신장 기능
+            - 허증 중심, 허열 완충 방향. (수습 정체가 동반되는지 병행 확인)
             """)
 
     # ------------------------------------------
     with tabs[8]:
         st.subheader("🧬 9. Q6 64큐브 Core 주석 패널")
-        st.info("Q6 layer는 64괘·64코돈·384효사·384 directed bit-flip mutation을 병렬 배치하는 정보기하학적 해석층으로, 처방의 전통적 방향성을 6비트 상태공간의 언어로 주석화(Annotation)합니다.")
+        st.info("Q6 layer는 처방의 전통적 방향성을 6비트 상태공간의 기하학적 언어로 주석화(Annotation)하는 연구자용 해석층입니다.")
         st.success(f"**💡 Q6 64큐브 핵심 변화 방향:** `{formula_info['q6_core_vector']}`")
-        
         for idx, row in merged_herbs_vectors.iterrows():
-            st.markdown(f"### **[약재: {row['herb_name']}]**")
-            st.markdown(f"- 🏛️ **전통 역할:** {row['role']} / {row['trad_role_desc']}")
-            
-            if str(row['q6_coord']) == "미고정":
-                st.markdown(f"- 🧬 **Q6 Core 주석:** `좌표 미고정 / 추후 고정 필요` | **해석축:** {row['q6_axis']}")
-            else:
-                st.markdown(f"- 🧬 **Q6 Core 주석:** `{row['codon']} ➔ {row['amino_acid']}` | **64큐브 좌표:** n={row['q6_coord']} | **해석축:** {row['q6_axis']}")
-                
-            st.markdown(f"- ⚠️ **[해석 주의]:** 이 매핑은 {row['herb_name']}이(가) 실제 유전암호를 직접 조절한다는 뜻이 아니라, 전통적 작용 방향을 코돈-아미노산 물성 벡터 언어로 주석화한 것입니다.")
-            st.divider()
+            st.markdown(f"**[{row['herb_name']}]** 전통 역할: {row['role']} | Q6 축: {row['q6_axis']}")
 
     # ------------------------------------------
     with tabs[9]:
         st.subheader("📚 10. 황제내경 병렬 해석 패널")
-        st.error("**[해석 주의] 본 패널은 황제내경 원문을 직접적인 생물학적 증명 자료로 사용하는 것이 아니라, 전통 생명론의 핵심 개념을 정보기하학 언어로 병렬 해석하는 교육·연구 보조 층입니다.**")
-        
-        st.markdown("#### 1. 황제내경 해석축 (Neijing Axis)")
-        st.markdown(f"- 🏛️ **장부축 매핑:** `{nj_info['zang_fu']}`")
-        st.markdown(f"- 🩸 **기혈진액 변증축:** `{nj_info['qi_blood']}`")
-        st.markdown(f"- ☯️ **오행 작용 벡터:** `{nj_info['wuxing']}`")
-        st.info(nj_info['interpretation'])
+        st.error("**[해석 주의] 전통 생명론의 핵심 개념을 정보기하학 언어로 병렬 해석하는 연구 보조 층입니다.**")
+        st.markdown(f"- **장부축 매핑:** `{nj_info['zang_fu']}`\n- **기혈진액 변증축:** `{nj_info['qi_blood']}`\n- **오행 작용 벡터:** `{nj_info['wuxing']}`")
 
     # ------------------------------------------
     with tabs[10]:
         st.subheader("🚨 11. 안전성 확인 패널 (Safety Filter)")
-        st.info("**이 경고는 처방 금지 판정이 아니라, 실제 복용 전 의료인의 추가 확인이 필요한 항목을 표시한 것입니다.**")
-        
-        fatal_alerts, high_alerts, med_alerts, notice_alerts, info_alerts = [], [], [], [], []
-
-        if cond_preg and any(formula_safety["pregnancy_flag"].str.contains("금기|신중", na=False)): fatal_alerts.append("❌ **[특수조건: 금기 추정]** 임산부 금기/신중투여 약재 포함 (투여 타당성 절대 확인 요망)")
-        if cond_surgery and any(formula_safety["drug_interaction_flag"].str.contains("항응고제|항혈소판제", na=False)): fatal_alerts.append("❌ **[수술 전후: 금기 추정]** 수술/시술 예정 환자의 지혈 지연 우려 (중단 검토 요망)")
-        
-        if med_anti_coag and any(formula_safety["drug_interaction_flag"].str.contains("항응고제|항혈소판제|아스피린", na=False)): high_alerts.append("🔴 **[약물병용: 높음]** 항응고제/항혈소판제 병용 시 출혈 위험 증가")
-        if (med_cancer or med_immuno) and any(formula_safety["drug_interaction_flag"].str.contains("면역", na=False)): high_alerts.append("🔴 **[약물병용: 높음]** 항암제/면역억제제 병용 시 면역계 자극/상호작용 우려")
-        if cond_liver or cond_kidney or cond_lab:
-            if any(formula_safety["liver_kidney_flag"].str.contains("간|신장", na=False)): high_alerts.append("🔴 **[임상기저치: 높음]** 간/신장 기능 저하 환자의 장기 사용 시 배설 부담 및 효소 추이 검토 요망")
-        
-        if med_bp and any(formula_safety["drug_interaction_flag"].str.contains("혈압약", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 혈압약 병용 시 혈압 변동성 검토 요망")
-        if med_diab and any(formula_safety["drug_interaction_flag"].str.contains("혈당", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 당뇨약 병용 시 혈당 변동성(시너지 효과 등) 검토 요망")
-        if med_diuretic and any(formula_safety["drug_interaction_flag"].str.contains("이뇨제", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 이뇨제 병용 시 전해질 불균형 검토 요망")
-        if (med_sedative or med_psych) and any(formula_safety["drug_interaction_flag"].str.contains("수면제|진정제", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 수면제/진정제 병용 시 과도한 진정 작용 유발 가능성 검토")
-        
-        if cond_dig and any(formula_safety["liver_kidney_flag"].str.contains("소화", na=False)): notice_alerts.append("🟢 **[소화기계: 주의]** 만성 소화불량 환자 복용 시 위장 장애(점액질 등) 부담 검토")
-        if cond_frail: notice_alerts.append("🟢 **[특수조건: 주의]** 소아/고령자/허약자의 경우 초기 용량 감량 및 반응 모니터링 요망")
-        if cond_allergy: notice_alerts.append("🟢 **[알레르기: 주의]** 약물 과민반응 병력이 있으므로 한약재 교차 알레르기 발생 여부 관찰 요망")
-        notice_alerts.append("🟢 **[일반주의]** 복용 전후 전신 반응 주기적 확인 요망")
-
-        if med_suppl: info_alerts.append("⚪ **[정보부족]** 타 한약/건기식 병용 시 문헌적 근거 부족으로 임상적 판단 및 주의 관찰 요망")
-
-        if fatal_alerts:
-            st.markdown("### **[우선순위: 금기 추정 (Contraindicated)]**")
-            for alert in fatal_alerts: st.error(alert)
-        if high_alerts:
-            st.markdown("### **[우선순위: 높음 (High)]**")
-            for alert in high_alerts: st.error(alert)
-        if med_alerts:
-            st.markdown("### **[우선순위: 중간 (Medium)]**")
-            for alert in med_alerts: st.warning(alert)
-        if notice_alerts:
-            st.markdown("### **[우선순위: 주의 (Notice)]**")
-            for alert in notice_alerts: st.info(alert)
-        if info_alerts:
-            st.markdown("### **[우선순위: 정보부족 (Info Needed)]**")
-            for alert in info_alerts: st.markdown(alert)
-            
-        st.markdown("---")
         st.markdown("**약재별 상세 안전성 데이터**")
-        
         display_safety = formula_safety[["herb_name", "drug_interaction_flag", "pregnancy_flag", "liver_kidney_flag", "evidence_note"]].copy()
         display_safety.columns = ["약재명", "약물 병용 주의", "임신·수유 관련", "간·신장 관련", "주의 근거/확인 사항"]
         st.dataframe(display_safety, use_container_width=True, hide_index=True)
 
-        if lab_ast_alt or lab_creatinine or lab_hba1c or lab_bp:
-            st.markdown("---")
-            st.markdown("#### 🧪 임상 검사값 리마인더")
-            st.markdown(f"- **AST/ALT**: {lab_ast_alt if lab_ast_alt else '입력안됨'} | **Creatinine/eGFR**: {lab_creatinine if lab_creatinine else '입력안됨'}")
-            st.markdown(f"- **PT/INR**: {lab_pt_inr if lab_pt_inr else '입력안됨'} | **혈당/HbA1c**: {lab_hba1c if lab_hba1c else '입력안됨'}")
-            st.markdown(f"- **혈압**: {lab_bp if lab_bp else '입력안됨'} | **수술예정**: {lab_surgery_date if lab_surgery_date else '없음'}")
-
     # ------------------------------------------
     with tabs[11]:
         st.subheader("💬 12. 환자 설명문 패널")
-        
-        if selected_formula_name == "육미지황환":
-            symptom_warnings = [w for w, cond in zip(["혈당 변동 가능성", "소화 상태 및 설사 여부", "피로감 및 부종 여부"], [med_diab, cond_dig, cond_liver]) if cond]
-            warning_text = f"다만, 현재 입력된 질환 정보나 검사 수치가 체크되어 있으므로, 진료 과정에서 <b>{', '.join(symptom_warnings)}</b>를 세밀하게 확인해야 합니다." if symptom_warnings else "복용 전후의 반응을 진료 과정에서 세밀하게 확인하면서 조절해야 합니다."
-
-            patient_html = f"""
-            <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
-                <b>육미지황환</b>은 숙지황·산수유·산약의 삼보(三補)와 복령·택사·목단피의 삼사(三瀉)로 구성된 처방입니다. 전통적으로 자음·보신·허열 완충 방향에서 해석되며, 동의보감에서는 정(精)을 보존하는 양생의 핵심으로 설명합니다.<br><br>
-                이 대시보드는 처방 주변에서 나타날 수 있는 반응 가능성과 주의점을 함께 보여줍니다. 이는 약재가 유전자를 조절한다는 뜻이 아니라, 복용 전후 관찰해야 할 소화 상태, 부종, 열감, 피로감, 혈당 변화 같은 항목을 정리한 것입니다.<br><br>
-                {warning_text}
-            </div>
-            """
-            st.markdown(patient_html, unsafe_allow_html=True)
-            
-        else:
-            patient_html_generic = f"""
-            <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
-                <b>{selected_formula_name}</b>은 한 가지 성분이 한 가지 증상만 조절하는 방식이 아니라, 여러 약재가 함께 작용하여 몸의 균형 방향을 조절하는 복합 처방입니다.<br><br>
-                이 대시보드는 처방 주변에서 나타날 수 있는 반응 가능성과 주의점을 함께 보여줍니다. 이는 약재가 유전자를 조절한다는 뜻이 아니라, 복용 전후 관찰해야 할 소화 상태, 부종, 열감, 피로감, 혈당 변화 같은 항목을 정리한 것입니다.<br><br>
-                복용 전후의 반응을 한의사의 진료 과정에서 세밀하게 확인하고 조절해야 합니다.
-            </div>
-            """
-            st.markdown(patient_html_generic, unsafe_allow_html=True)
+        patient_html = f"""
+        <div style="background-color:#eaf3ff; padding:20px; border-radius:10px; line-height:1.8; color:#1e293b;">
+            <b>{selected_formula_name}</b>은 몸의 부족한 기운을 보충하고, 전반적인 신체 상태를 함께 살피는 방향의 처방입니다.<br><br>
+            이 대시보드는 처방 주변에서 나타날 수 있는 반응 가능성과 주의점을 함께 보여줍니다. 복용 전후에는 소화 상태, 피로감, 혈압, 혈당, 두근거림, 수면 변화 같은 항목을 확인해야 합니다.<br><br>
+            복용 중 특이 반응이 나타나면 담당 한의사의 진료 과정에서 세밀하게 조절해야 합니다.
+        </div>
+        """
+        st.markdown(patient_html, unsafe_allow_html=True)
 else:
-    st.info("👈 좌측 패널에서 환자 정보를 입력하고 '처방 분석 및 리포트 생성' 버튼을 눌러주세요.")
+    st.info("👈 좌측 패널에서 환자 정보를 입력하고 '처방 분석 및 정합도 확인' 버튼을 눌러주세요.")
