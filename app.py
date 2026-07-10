@@ -60,7 +60,7 @@ st.markdown(
 )
 
 # ==========================================
-# 2. 데이터베이스 세팅 (동의보감 추가)
+# 2. 데이터베이스 세팅
 # ==========================================
 @st.cache_data
 def load_data():
@@ -78,11 +78,10 @@ def load_data():
         ]
     })
 
-    # [신규 추가] 동의보감 병렬 해석 데이터
     donguibogam = pd.DataFrame({
         "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
         "db_chapter": ["신형(身形), 몽(夢)", "내경편 비위(脾胃)", "내경편 기(氣), 내상(內傷)", "내경편 신(腎), 소아(小兒)"],
-        "db_pattern": ["허번불면(虛煩不眠), 심담허겁(心膽虛怯)", "식적(食積), 담음(痰飮), 비위 불화", "노권상(勞倦傷), 음식상(飮食傷), 기허발열(氣虛發熱)", "신수(腎水) 부족, 진음(眞陰) 고갈"],
+        "db_pattern": ["허번불면(虛煩不眠), 심담허겁(心膽虛怯)", "식적(食積), 담음(痰飮), 비위 불화", "노권상(勞倦傷), 음식상(飮食傷), 기허발열(氣虛發열)", "신수(腎水) 부족, 진음(眞陰) 고갈"],
         "db_interpret": [
             "과도한 사려(思慮)로 심비(心脾)가 상하여 발생하는 수면 장애와 정서 불안을 다스리는 양생적 조절 방향성을 제시합니다.",
             "비위의 운화 기능이 떨어져 습(濕)이 정체된 병증에 대해 덥히고 말려 기기를 소통시키는 병리적 주석을 제공합니다.",
@@ -149,7 +148,7 @@ def load_data():
 df_formulas, df_polyhedrons, df_neijing, df_donguibogam, df_herbs, df_safety, df_vectors = load_data()
 
 # ==========================================
-# 패널 1: 환자 입력 패널 (Sidebar) - 고도화된 안전성 체크리스트
+# 패널 1: 환자 입력 패널 (Sidebar) - 고도화된 특이사항 폼
 # ==========================================
 st.sidebar.header("📝 환자 임상 정보 입력")
 patient_symp = st.sidebar.text_input("주증상 및 현대 진단명", placeholder="예: 소화불량, 황반변성, 디스크")
@@ -182,15 +181,16 @@ cond_surgery = st.sidebar.checkbox("수술/시술/치과치료 예정")
 cond_alcohol = st.sidebar.checkbox("음주량 많음")
 cond_lab = st.sidebar.checkbox("최근 검사 이상 (간/신장/혈액)")
 
+# [수정] 임상 검사값 예시(value) 데이터 추가로 사실감 극대화
 st.sidebar.subheader("임상 검사값 및 특이사항 입력")
-lab_ast_alt = st.sidebar.text_input("AST/ALT:")
-lab_creatinine = st.sidebar.text_input("Creatinine/eGFR:")
-lab_pt_inr = st.sidebar.text_input("PT/INR:")
-lab_hba1c = st.sidebar.text_input("공복혈당/HbA1c:")
-lab_bp = st.sidebar.text_input("혈압 (mmHg):")
-lab_current_meds = st.sidebar.text_area("현재 복용약 상세:")
-lab_allergy_hist = st.sidebar.text_input("알레르기 상세:")
-lab_surgery_date = st.sidebar.text_input("수술/시술 예정일:")
+lab_ast_alt = st.sidebar.text_input("AST/ALT:", value="45 / 52 (U/L)")
+lab_creatinine = st.sidebar.text_input("Creatinine/eGFR:", value="1.2 mg/dL / 58")
+lab_pt_inr = st.sidebar.text_input("PT/INR:", value="1.0 / 1.1")
+lab_hba1c = st.sidebar.text_input("공복혈당/HbA1c:", value="126 mg/dL / 6.8%")
+lab_bp = st.sidebar.text_input("혈압 (mmHg):", value="145 / 90")
+lab_current_meds = st.sidebar.text_area("현재 복용약 상세:", value="아스피린 장용정 100mg\n로사르탄 50mg")
+lab_allergy_hist = st.sidebar.text_input("알레르기 상세:", value="특이사항 없음")
+lab_surgery_date = st.sidebar.text_input("수술/시술 예정일:", value="2026-08-15 (임플란트 시술)")
 
 st.sidebar.divider()
 selected_formula_name = st.sidebar.selectbox("분석할 한의학 처방 선택", df_formulas["formula_name"])
@@ -308,40 +308,37 @@ if analyze_btn:
         st.info(nj_info['interpretation'])
 
     # ------------------------------------------
-    # 5단계 위험도 분류 (금기추정, 높음, 중간, 주의, 정보부족)
-    # ------------------------------------------
     with tab7:
         st.subheader("🚨 7. 안전성 확인 패널 (Safety Filter)")
         st.info("**이 경고는 처방 금지 판정이 아니라, 실제 복용 전 의료인의 추가 확인이 필요한 항목을 표시한 것입니다.**")
         
         fatal_alerts, high_alerts, med_alerts, notice_alerts, info_alerts = [], [], [], [], []
 
-        # 1. 금기 추정 (Fatal/Contraindicated)
+        # 1. 금기 추정
         if cond_preg and any(formula_safety["pregnancy_flag"].str.contains("금기|신중", na=False)): fatal_alerts.append("❌ **[특수조건: 금기 추정]** 임산부 금기/신중투여 약재 포함 (투여 타당성 절대 확인 요망)")
         if cond_surgery and any(formula_safety["drug_interaction_flag"].str.contains("항응고제|항혈소판제", na=False)): fatal_alerts.append("❌ **[수술 전후: 금기 추정]** 수술/시술 예정 환자의 지혈 지연 우려 (중단 검토 요망)")
         
-        # 2. 높음 (High)
+        # 2. 높음
         if med_anti_coag and any(formula_safety["drug_interaction_flag"].str.contains("항응고제|항혈소판제|아스피린", na=False)): high_alerts.append("🔴 **[약물병용: 높음]** 항응고제/항혈소판제 병용 시 출혈 위험 증가")
         if (med_cancer or med_immuno) and any(formula_safety["drug_interaction_flag"].str.contains("면역", na=False)): high_alerts.append("🔴 **[약물병용: 높음]** 항암제/면역억제제 병용 시 면역계 자극/상호작용 우려")
         if cond_liver or cond_kidney or cond_lab:
             if any(formula_safety["liver_kidney_flag"].str.contains("간|신장", na=False)): high_alerts.append("🔴 **[임상기저치: 높음]** 간/신장 기능 저하 환자의 장기 사용 시 배설 부담 및 효소 추이 검토 요망")
         
-        # 3. 중간 (Medium)
+        # 3. 중간
         if med_bp and any(formula_safety["drug_interaction_flag"].str.contains("혈압약", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 혈압약 병용 시 혈압 변동성 검토 요망")
         if med_diab and any(formula_safety["drug_interaction_flag"].str.contains("혈당", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 당뇨약 병용 시 혈당 변동성(시너지 효과 등) 검토 요망")
         if med_diuretic and any(formula_safety["drug_interaction_flag"].str.contains("이뇨제", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 이뇨제 병용 시 전해질 불균형 검토 요망")
         if (med_sedative or med_psych) and any(formula_safety["drug_interaction_flag"].str.contains("수면제|진정제", na=False)): med_alerts.append("🟡 **[약물병용: 중간]** 수면제/진정제 병용 시 과도한 진정 작용 유발 가능성 검토")
         
-        # 4. 주의 (Notice)
+        # 4. 주의
         if cond_dig and any(formula_safety["liver_kidney_flag"].str.contains("소화", na=False)): notice_alerts.append("🟢 **[소화기계: 주의]** 만성 소화불량 환자 복용 시 위장 장애(점액질 등) 부담 검토")
         if cond_frail: notice_alerts.append("🟢 **[특수조건: 주의]** 소아/고령자/허약자의 경우 초기 용량 감량 및 반응 모니터링 요망")
         if cond_allergy: notice_alerts.append("🟢 **[알레르기: 주의]** 약물 과민반응 병력이 있으므로 한약재 교차 알레르기 발생 여부 관찰 요망")
         notice_alerts.append("🟢 **[일반주의]** 복용 전후 전신 반응 주기적 확인 요망")
 
-        # 5. 정보부족 (Info Needed)
+        # 5. 정보부족
         if med_suppl: info_alerts.append("⚪ **[정보부족]** 타 한약/건기식 병용 시 문헌적 근거 부족으로 임상적 판단 및 주의 관찰 요망")
 
-        # 결과 출력
         if fatal_alerts:
             st.markdown("### **[우선순위: 금기 추정 (Contraindicated)]**")
             for alert in fatal_alerts: st.error(alert)
