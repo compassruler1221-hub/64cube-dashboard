@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("☯️ 한의 임상 의사결정 지원 대시보드")
-st.caption("전통 처방 · 황제내경 · 동의보감 · 침구 · 뜸 · 361 표준 경혈 DB · 안전성 · 소견서 통합")
+st.caption("전통 처방 · 황제내경 · 동의보감 · 침구 · 뜸 · 361 표준 경혈 DB · 안전성 · 소견서 통합 v2")
 
 st.warning(
     "**[주의] 본 앱은 자동 진단·자동 처방·자동 침구 시술 지시 도구가 아닙니다.**\n\n"
@@ -407,41 +407,97 @@ def build_matches_and_cautions(formula, inputs):
         matches.append("보충·수렴·완충 방향 소견 확인: 피로, 안색, 맥력, 설질, 소화상태 확인")
     if any(k in text for k in ["습담", "담음", "식체", "후태", "더부룩"]):
         cautions.append("습담·식체·후태 소견 → 보익·자음 처방의 위장 부담 또는 조습 처방 필요성 확인")
-    if inputs["bp"] or inputs["meds"]:
-        cautions.append("혈압·복용약 입력 → 혈압약, 항응고제, 당뇨약, 수면제 병용 여부 세부 확인")
+    if inputs.get("mac_force") in ["허맥/약맥/무력", "세맥"] or inputs.get("tongue_color") == "담백" or inputs.get("tongue_fluid") == "치흔":
+        matches.append("진맥·설진상 허증 또는 기혈 부족 가능성 → 보충축/완충축 정합 여부 확인")
+    if inputs.get("tongue_coat") in ["후태", "백니태", "황니태"] or inputs.get("abdominal") == "더부룩함/가스":
+        cautions.append("후태·니태·복부팽만 → 보익·자음 처방의 위장 부담 또는 습담·식체 동반 확인")
+    if inputs.get("tongue_fluid") == "건조" or inputs.get("tongue_coat") == "소태/무태":
+        cautions.append("건조·소태/무태 → 조습·이수·공하 방향이 진액 부족을 심화하지 않는지 확인")
+    if inputs["bp"] or inputs["meds"] or inputs.get("bp_heat"):
+        cautions.append("혈압·복용약·상열감 정보 → 혈압약, 항응고제, 당뇨약, 수면제 병용 여부 세부 확인")
     return matches, cautions
 
 # ============================================================
 # 5. 인체 SVG 시각화
 # ============================================================
-def make_body_svg(points_df, title="경혈 표시", show_labels=True):
-    # points_df columns: x, y, code, 경혈명, 처방 방향축, 관련도
+def make_body_svg(points_df, title="경혈 표시", show_labels=True, max_labels=24):
+    """
+    교육·검토용 인체 도식.
+    - 기본은 후보 혈위만 작게 표시한다.
+    - 전체 361개는 매우 작은 회색 점으로 표시한다.
+    - 실제 취혈 위치가 아니라 경락/부위군을 이해하기 위한 도식이다.
+    """
+    points_df = points_df.copy()
+    if points_df.empty:
+        points_df = pd.DataFrame(columns=["x", "y", "code", "경혈명", "관련도"])
+
+    total = len(points_df)
+    label_count = 0
     circles = []
     for _, r in points_df.iterrows():
         x, y = float(r["x"]), float(r["y"])
-        rel = float(r.get("관련도", 1))
-        radius = 2.5 + min(rel, 10) * 0.15
-        color = "#ff4b4b" if rel >= 6 else "#1f77b4" if rel >= 3 else "#7f7f7f"
-        label = f"{r['code']} {r['경혈명']}"
-        circles.append(f'<circle cx="{x}" cy="{y}" r="{radius:.1f}" fill="{color}" opacity="0.85"><title>{escape(label)}</title></circle>')
-        if show_labels:
-            circles.append(f'<text x="{x+2.8}" y="{y+1.5}" font-size="3.2" fill="#111">{escape(str(r["code"]))}</text>')
-    svg = f'''
-    <svg viewBox="0 0 100 105" width="100%" height="620" xmlns="http://www.w3.org/2000/svg">
+        rel = float(r.get("관련도", 1) or 1)
+
+        if total > 120:
+            radius = 0.75
+            color = "#8c8c8c"
+            opacity = "0.42"
+        else:
+            radius = 1.15 + min(rel, 10) * 0.10
+            color = "#d62728" if rel >= 8 else "#1f77b4" if rel >= 5 else "#6f6f6f"
+            opacity = "0.86"
+
+        label = f"{r.get('code','')} {r.get('경혈명','')}"
+        circles.append(
+            f'<circle cx="{x}" cy="{y}" r="{radius:.2f}" fill="{color}" opacity="{opacity}" stroke="#ffffff" stroke-width="0.25"><title>{escape(label)}</title></circle>'
+        )
+
+        if show_labels and total <= 80 and label_count < max_labels:
+            circles.append(
+                f'<text x="{x+1.7}" y="{y+0.9}" font-size="2.55" fill="#111" font-weight="600">{escape(str(r.get("code", "")))}</text>'
+            )
+            label_count += 1
+
+    svg = f"""
+    <div style="max-width:720px;margin:0 auto;">
+    <svg viewBox="0 0 100 105" width="100%" height="500" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{escape(title)}">
       <rect x="0" y="0" width="100" height="105" fill="#ffffff"/>
-      <text x="50" y="5" text-anchor="middle" font-size="5" font-weight="bold">{escape(title)}</text>
-      <!-- human silhouette -->
-      <circle cx="50" cy="15" r="8" fill="#f2f2f2" stroke="#333" stroke-width="0.5"/>
-      <path d="M42 25 C39 38,39 54,42 68 L46 68 C45 77,44 89,43 98 L49 98 C49 82,50 74,50 68 C50 74,51 82,51 98 L57 98 C56 89,55 77,54 68 L58 68 C61 54,61 38,58 25 Z" fill="#f2f2f2" stroke="#333" stroke-width="0.5"/>
-      <path d="M42 28 C30 35,23 48,20 62" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round"/>
-      <path d="M58 28 C70 35,77 48,80 62" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round"/>
-      <path d="M46 68 C43 78,38 89,35 99" fill="none" stroke="#333" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M54 68 C57 78,62 89,65 99" fill="none" stroke="#333" stroke-width="2.2" stroke-linecap="round"/>
-      <text x="6" y="102" font-size="3.2" fill="#555">※ 교육·검토용 도식입니다. 실제 취혈은 체표 표지와 촌법에 따라 한의사가 결정합니다.</text>
-      {''.join(circles)}
+      <text x="50" y="5" text-anchor="middle" font-size="4.2" font-weight="700">{escape(title)}</text>
+      <text x="23" y="10" text-anchor="middle" font-size="3" fill="#555">전면/측면 경락 도식</text>
+      <text x="73" y="10" text-anchor="middle" font-size="3" fill="#555">후면 경락 도식</text>
+
+      <circle cx="25" cy="18" r="6.0" fill="#f7f7f7" stroke="#333" stroke-width="0.45"/>
+      <path d="M19 28 C17 40,17.5 54,20 67 L23 67 C22.4 77,21.7 88,21.0 98 L25 98 C25 82,25.3 74,25.0 67 C24.7 74,25 82,25 98 L29 98 C28.3 88,27.6 77,27 67 L30 67 C32.5 54,33 40,31 28 Z" fill="#f7f7f7" stroke="#333" stroke-width="0.45"/>
+      <path d="M19.5 30 C12 38,9 50,8 62" fill="none" stroke="#333" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M30.5 30 C38 38,41 50,42 62" fill="none" stroke="#333" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M23 67 C20 78,17 89,15.5 99" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M27 67 C30 78,33 89,34.5 99" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/>
+
+      <circle cx="73" cy="18" r="6.0" fill="#f7f7f7" stroke="#333" stroke-width="0.45"/>
+      <path d="M67 28 C65 40,65.5 54,68 67 L71 67 C70.4 77,69.7 88,69 98 L73 98 C73 82,73.3 74,73 67 C72.7 74,73 82,73 98 L77 98 C76.3 88,75.6 77,75 67 L78 67 C80.5 54,81 40,79 28 Z" fill="#f7f7f7" stroke="#333" stroke-width="0.45"/>
+      <path d="M67.5 30 C60 38,57 50,56 62" fill="none" stroke="#333" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M78.5 30 C86 38,89 50,90 62" fill="none" stroke="#333" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M71 67 C68 78,65 89,63.5 99" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M75 67 C78 78,81 89,82.5 99" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/>
+
+      <g>{''.join(circles)}</g>
+      <rect x="5" y="100.5" width="90" height="3.6" fill="#fff" opacity="0.85"/>
+      <text x="6" y="103" font-size="2.65" fill="#555">※ 교육·검토용 도식입니다. 실제 취혈은 체표 표지와 촌법에 따라 한의사가 결정합니다.</text>
     </svg>
-    '''
+    </div>
+    """
     return svg
+
+
+def select_display_points(candidate_df, max_points=28):
+    """화면 표시용 핵심 후보만 추린다. 전체 후보 수와 별개로 도식은 복잡하지 않게 유지한다."""
+    if candidate_df.empty:
+        return candidate_df
+    df = candidate_df.sort_values(["관련도", "경락코드", "순번"], ascending=[False, True, True]).copy()
+    top = df[(df["관련도"] >= 7) | (df["code"].isin(POINT_OVERRIDES.keys()))].head(max_points)
+    if len(top) < min(12, max_points):
+        top = df.head(max_points)
+    return top
 
 # ============================================================
 # 6. 소견서 생성
@@ -511,21 +567,40 @@ symptom = st.sidebar.text_input("주증상 및 진단명", placeholder="예: 만
 assessment = st.sidebar.text_area("한의사 종합검진 소견", height=160, placeholder="예: 맥 허약, 설 담백, 치흔. 기혈양허와 비위기허 경향. 소화력이 약함.")
 goal = st.sidebar.text_input("치료 목표", placeholder="예: 피로 회복, 소화 안정, 수면 개선")
 
+st.sidebar.subheader("🤚 진맥·설진·복진 체크")
+mac_force = st.sidebar.selectbox("맥력", ["선택안함", "허맥/약맥/무력", "실맥/유력", "세맥", "현맥", "활맥", "긴맥"], index=0)
+tongue_color = st.sidebar.selectbox("설질", ["선택안함", "담백", "홍", "암자", "반점/어반"], index=0)
+tongue_coat = st.sidebar.selectbox("설태", ["선택안함", "박백태", "후태", "백니태", "황니태", "소태/무태"], index=0)
+tongue_fluid = st.sidebar.selectbox("진액/형태", ["선택안함", "윤택", "건조", "치흔", "부종감"], index=0)
+abdominal = st.sidebar.selectbox("복진", ["선택안함", "복부 냉감", "더부룩함/가스", "압통/저항", "복직근 긴장"], index=0)
+
 st.sidebar.subheader("🧪 검사값 및 복용약")
 ast_alt = st.sidebar.text_input("AST/ALT")
 creatinine = st.sidebar.text_input("Creatinine/eGFR")
 bp = st.sidebar.text_input("혈압")
-meds = st.sidebar.text_area("현재 복용약 상세", height=90)
+meds = st.sidebar.text_area("현재 복용약 상세", height=90, placeholder="예: 아스피린 100mg, 로사르탄 50mg, 당뇨약, 수면제 등")
 
-st.sidebar.subheader("🚨 안전성 체크")
+st.sidebar.subheader("💊 복용약 체크목록")
 anti_coag = st.sidebar.checkbox("항응고제/항혈소판제/NSAIDs")
 bp_med = st.sidebar.checkbox("혈압약")
 diabetes_med = st.sidebar.checkbox("당뇨약/인슐린")
+diuretic_med = st.sidebar.checkbox("이뇨제")
 sedative = st.sidebar.checkbox("수면제/진정제/항우울제")
+steroid_immuno = st.sidebar.checkbox("스테로이드/면역억제제")
+cancer_med = st.sidebar.checkbox("항암제/표적치료제/호르몬제")
+supplements = st.sidebar.checkbox("다른 한약·건기식·보충제 병용")
+
+st.sidebar.subheader("🚨 환자 상태 체크목록")
 pregnant = st.sidebar.checkbox("임신/수유")
+frail = st.sidebar.checkbox("소아/고령자/허약자")
 liver_kidney = st.sidebar.checkbox("간·신장 질환")
+bp_heat = st.sidebar.checkbox("고혈압/상열감/심계")
+digestive_weak = st.sidebar.checkbox("만성 소화불량/설사")
+allergy = st.sidebar.checkbox("알레르기/약물 과민반응")
 surgery = st.sidebar.checkbox("수술/시술 예정")
 neuro = st.sidebar.checkbox("피부 감각저하/당뇨성 말초신경병증")
+fever_inflammation = st.sidebar.checkbox("실열/염증성 열감")
+edema_urine = st.sidebar.checkbox("부종/소변불리")
 
 show_research = st.sidebar.checkbox("🔬 연구자용 용어 보기", value=False)
 
@@ -535,14 +610,29 @@ inputs = {
     "goal": goal,
     "bp": bp,
     "meds": meds,
+    "mac_force": mac_force,
+    "tongue_color": tongue_color,
+    "tongue_coat": tongue_coat,
+    "tongue_fluid": tongue_fluid,
+    "abdominal": abdominal,
     "anti_coag": anti_coag,
     "bp_med": bp_med,
     "diabetes_med": diabetes_med,
+    "diuretic_med": diuretic_med,
     "sedative": sedative,
+    "steroid_immuno": steroid_immuno,
+    "cancer_med": cancer_med,
+    "supplements": supplements,
     "pregnant": pregnant,
+    "frail": frail,
     "liver_kidney": liver_kidney,
+    "bp_heat": bp_heat,
+    "digestive_weak": digestive_weak,
+    "allergy": allergy,
     "surgery": surgery,
     "neuro": neuro,
+    "fever_inflammation": fever_inflammation,
+    "edema_urine": edema_urine,
 }
 
 formula = FORMULA_DF[FORMULA_DF["처방명"] == selected_formula].iloc[0].to_dict()
@@ -550,6 +640,7 @@ neijing_df = infer_neijing(formula, symptom, assessment)
 dongui_df = infer_dongui(formula, symptom, assessment)
 match_list, caution_list = build_matches_and_cautions(formula, inputs)
 cand_df = acupoint_candidates(formula, symptom, assessment)
+display_df = select_display_points(cand_df, max_points=28)
 
 # 안전 체크 추가
 if anti_coag:
@@ -558,16 +649,36 @@ if bp_med or bp:
     caution_list.append("혈압 관련 정보 체크 → 승양·온보 자극 과잉 및 혈압 변화 확인")
 if diabetes_med:
     caution_list.append("당뇨약/인슐린 체크 → 혈당 변화와 저혈당 증상 확인")
+if diuretic_med:
+    caution_list.append("이뇨제 체크 → 이수·삼습 방향과 병용 시 탈수·전해질·갈증 확인")
 if sedative:
     caution_list.append("수면제/진정제/항우울제 체크 → 안신 처방·혈위 사용 시 주간 졸림 확인")
 if pregnant:
     caution_list.append("임신/수유 체크 → 처방·침구·뜸 모두 전문가 확인, 임신 주의 혈위 필터 확인")
+if frail:
+    caution_list.append("소아/고령자/허약자 체크 → 처방 용량·침 자극·뜸 강도 보수적으로 검토")
 if liver_kidney:
     caution_list.append("간·신장 질환 체크 → 장기 복용 전 검사값 확인")
+if bp_heat:
+    caution_list.append("고혈압/상열감/심계 체크 → 승양·온보·뜸 자극 과잉 주의")
+if digestive_weak:
+    caution_list.append("만성 소화불량/설사 체크 → 보익·자음 처방의 위장 부담 확인")
+if allergy:
+    caution_list.append("알레르기/약물 과민반응 체크 → 약재·뜸 연기·피부 자극 반응 확인")
 if surgery:
     caution_list.append("수술/시술 예정 체크 → 출혈 관련 약재·혈위와 복용 중단 여부 확인")
 if neuro:
     caution_list.append("피부 감각저하/당뇨성 말초신경병증 체크 → 뜸 화상 위험 주의")
+if fever_inflammation:
+    caution_list.append("실열/염증성 열감 체크 → 온보·뜸·강한 보법 자극 주의")
+if edema_urine:
+    caution_list.append("부종/소변불리 체크 → 이수·수습 조절 방향과 신장 기능 확인")
+if steroid_immuno:
+    caution_list.append("스테로이드/면역억제제 체크 → 감염 위험, 피부 반응, 장기 복용 안전성 확인")
+if cancer_med:
+    caution_list.append("항암제/표적치료제/호르몬제 체크 → 병용 전 담당의·전문가 확인 필요")
+if supplements:
+    caution_list.append("다른 한약·건기식·보충제 병용 체크 → 중복 성분과 상호작용 확인")
 
 # ============================================================
 # 8. 탭 구성
@@ -594,7 +705,7 @@ with tab["1. 통합 요약"]:
     st.header(f"🧑‍⚕️ {selected_formula} 통합 요약")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("361 경혈 DB", f"{len(ACUPOINT_DF)}개")
-    c2.metric("후보 혈위", f"{len(cand_df)}개")
+    c2.metric("핵심 후보 혈위", f"{len(display_df)}개")
     c3.metric("정합 소견", f"{len(match_list)}개")
     c4.metric("주의 소견", f"{len(caution_list)}개")
 
@@ -603,6 +714,22 @@ with tab["1. 통합 요약"]:
 
     st.subheader("한의사 종합소견")
     st.write(assessment or "미입력")
+
+    st.subheader("입력된 진맥·설진·안전 체크 요약")
+    checked_names = [name for name, checked in [
+        ("항응고제/항혈소판제", anti_coag), ("혈압약", bp_med), ("당뇨약", diabetes_med), ("이뇨제", diuretic_med),
+        ("수면제/진정제", sedative), ("임신/수유", pregnant), ("간·신장", liver_kidney), ("고혈압/상열", bp_heat),
+        ("소화불량/설사", digestive_weak), ("수술 예정", surgery), ("감각저하", neuro), ("실열", fever_inflammation), ("부종", edema_urine)
+    ] if checked]
+    quick_rows = [
+        {"구분": "맥력", "입력": mac_force},
+        {"구분": "설질", "입력": tongue_color},
+        {"구분": "설태", "입력": tongue_coat},
+        {"구분": "진액/형태", "입력": tongue_fluid},
+        {"구분": "복진", "입력": abdominal},
+        {"구분": "체크된 복용약/상태", "입력": ", ".join(checked_names) or "체크 없음"},
+    ]
+    st.dataframe(pd.DataFrame(quick_rows), use_container_width=True, hide_index=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -613,7 +740,8 @@ with tab["1. 통합 요약"]:
         st.dataframe(dongui_df, use_container_width=True, hide_index=True)
 
     st.subheader("상위 후보 혈위")
-    st.dataframe(cand_df[["code", "경혈명", "경락", "처방 방향축", "임상 방향", "금기·주의", "뜸 가능 여부", "관련도"]].head(12), use_container_width=True, hide_index=True)
+    st.caption(f"전체 관련 후보 {len(cand_df)}개 중 화면 표시용 핵심 후보 {len(display_df)}개만 보여줍니다.")
+    st.dataframe(display_df[["code", "경혈명", "경락", "처방 방향축", "임상 방향", "금기·주의", "뜸 가능 여부", "관련도"]], use_container_width=True, hide_index=True)
 
 with tab["2. 소견서·치료계획"]:
     st.header("📝 소견서·치료계획 초안")
@@ -657,19 +785,25 @@ with tab["4. 361 경혈 DB"]:
 with tab["5. 경혈 인체 시각화"]:
     st.header("🧍 경혈 인체 시각화")
     st.warning("이 그림은 실제 인체 사진 기반 자동 취혈이 아니라 교육·검토용 도식입니다. 정확한 위치는 체표 표지와 촌법으로 확인해야 합니다.")
-    view_mode = st.radio("표시할 혈위", ["선택 처방 후보 혈위", "전체 361개", "검색/필터 결과"], horizontal=True)
+    view_mode = st.radio("표시할 혈위", ["핵심 후보만", "후보 더 보기", "전체 361개", "검색/필터 결과"], horizontal=True)
     label_on = st.checkbox("라벨 표시", value=True)
+    max_show = st.slider("표시 개수", min_value=12, max_value=80, value=28, step=4)
 
     if view_mode == "전체 361개":
         plot_df = ACUPOINT_DF.copy()
         plot_df["관련도"] = 1
-        label_on = False if len(plot_df) > 80 else label_on
+        label_on = False
+        st.info("전체 361개는 위치 관계를 보는 용도라 아주 작은 회색 점으로 표시합니다. 실제 임상 검토는 핵심 후보만 보세요.")
     elif view_mode == "검색/필터 결과":
-        plot_df = db_view.copy() if "db_view" in locals() else ACUPOINT_DF.head(60).copy()
-        plot_df["관련도"] = plot_df.get("관련도", 1)
+        plot_df = (db_view.copy() if "db_view" in locals() else ACUPOINT_DF.head(max_show).copy()).head(max_show)
+        if "관련도" not in plot_df.columns:
+            plot_df["관련도"] = 1
+    elif view_mode == "후보 더 보기":
+        plot_df = cand_df.head(max_show).copy()
     else:
-        plot_df = cand_df.head(35).copy()
+        plot_df = select_display_points(cand_df, max_points=max_show).copy()
 
+    st.caption(f"현재 도식 표시: {len(plot_df)}개. 회색 전체점보다 파란/빨간 후보 혈위를 중심으로 보세요.")
     st.markdown(make_body_svg(plot_df, title=f"{selected_formula} 관련 경혈 표시", show_labels=label_on), unsafe_allow_html=True)
 
 with tab["6. 침구·혈위 후보"]:
@@ -677,13 +811,14 @@ with tab["6. 침구·혈위 후보"]:
     st.warning("후보 혈위군은 자동 침 처방이 아닙니다. 실제 혈위, 자침 깊이, 유침 시간, 보사법은 한의사가 결정합니다.")
     st.info(formula["침구 방향"])
     st.subheader("관련도 높은 후보 혈위")
-    st.dataframe(cand_df[["code", "경혈명", "경락", "처방 방향축", "임상 방향", "금기·주의", "뜸 가능 여부", "관련도"]].head(30), use_container_width=True, hide_index=True)
+    st.caption(f"전체 후보 {len(cand_df)}개 중 관련도 높은 핵심 후보 {len(display_df)}개를 우선 표시합니다.")
+    st.dataframe(display_df[["code", "경혈명", "경락", "처방 방향축", "임상 방향", "금기·주의", "뜸 가능 여부", "관련도"]], use_container_width=True, hide_index=True)
 
 with tab["7. 뜸 가능·주의"]:
     st.header("🔥 뜸 가능 여부 및 주의 조건")
     st.error("뜸은 화상, 감염, 피부 자극 위험이 있으므로 감각저하, 당뇨성 말초신경병증, 실열·상열, 임신, 피부질환을 반드시 확인해야 합니다.")
     st.info(formula["뜸 방향"])
-    moxa_df = cand_df[["code", "경혈명", "경락", "뜸 가능 여부", "금기·주의", "임신 주의", "관련도"]].head(40)
+    moxa_df = display_df[["code", "경혈명", "경락", "뜸 가능 여부", "금기·주의", "임신 주의", "관련도"]]
     st.dataframe(moxa_df, use_container_width=True, hide_index=True)
 
 with tab["8. 처방 방향 6축"]:
@@ -708,11 +843,21 @@ with tab["9. 안전성 확인"]:
         ("항응고제/항혈소판제/NSAIDs", anti_coag, "활혈 혈위·약재, 출혈 경향, 멍, 코피, 수술 예정 확인"),
         ("혈압약/고혈압", bp_med or bool(bp), "승양·온보 자극 과잉, 혈압 변화, 심계 확인"),
         ("당뇨약/인슐린", diabetes_med, "혈당 변화, 저혈당 증상, 감각저하 여부 확인"),
+        ("이뇨제", diuretic_med, "이수·삼습 방향과 병용 시 탈수·전해질·갈증 확인"),
         ("수면제/진정제/항우울제", sedative, "안신 처방·혈위와 병용 시 주간 졸림 확인"),
+        ("스테로이드/면역억제제", steroid_immuno, "감염 위험, 피부 반응, 장기 복용 안전성 확인"),
+        ("항암제/표적치료제/호르몬제", cancer_med, "병용 전 담당의·전문가 확인 필요"),
+        ("다른 한약·건기식·보충제", supplements, "중복 성분과 상호작용 확인"),
         ("임신/수유", pregnant, "처방·침구·뜸 모두 전문가 확인, 임신 주의 혈위 필터 확인"),
+        ("소아/고령자/허약자", frail, "용량·침 자극·뜸 강도 보수적으로 검토"),
         ("간·신장 질환", liver_kidney, "AST/ALT, Creatinine/eGFR 등 검사값 확인"),
+        ("고혈압/상열감/심계", bp_heat, "승양·온보·뜸 자극 과잉 주의"),
+        ("만성 소화불량/설사", digestive_weak, "보익·자음 처방의 위장 부담 확인"),
+        ("알레르기/약물 과민반응", allergy, "약재·뜸 연기·피부 자극 반응 확인"),
         ("수술/시술 예정", surgery, "출혈 관련 약재·혈위와 복용 중단 여부 확인"),
         ("피부 감각저하/당뇨성 말초신경병증", neuro, "뜸 화상 위험 주의"),
+        ("실열/염증성 열감", fever_inflammation, "온보·뜸·강한 보법 자극 주의"),
+        ("부종/소변불리", edema_urine, "이수·수습 조절 방향과 신장 기능 확인"),
     ]:
         if checked:
             safety_rows.append({"확인 항목": label, "우선순위": "높음", "확인 내용": note})
