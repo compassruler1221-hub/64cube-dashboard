@@ -712,28 +712,60 @@ with tabs[8]:
 # ============================================================
 # 탭 10. Q6 연구자용 주석
 # ============================================================
-
 with tabs[9]:
-    st.header("🧬 Q6 64큐브 주석 패널 연구자용")
-    st.info(
-        "이 패널은 연구자용입니다. Q6는 64괘·64코돈·384효사·384 directed bit-flip mutation을 "
-        "병렬 배치하는 정보기하학적 주석층입니다."
-    )
-    if f["level"] >= 3:
-        st.success("이 처방은 Level 3 예시 처방으로, Q6 코돈-아미노산 주석 확장 대상입니다.")
-    else:
-        st.warning("이 처방은 현재 Level 1 상태입니다. 전통 Core·임상 해석을 우선 제공하며, Q6 좌표 주석은 연구 확장 예정입니다.")
+    st.header("🧭 처방 방향 6축 해석 패널")
+    st.caption("연구자용 구조명: Q6 64큐브 Core 주석")
 
-    demo_rows = []
-    for n in [0, 9, 18, 63]:
-        codon = n_to_codon(n)
-        demo_rows.append({
-            "n": n,
-            "codon": codon,
-            "amino_acid": codon_to_aa(codon),
-            "hyo_bits": n_to_hyo_bits(n),
-        })
-    st.dataframe(pd.DataFrame(demo_rows), use_container_width=True, hide_index=True)
+    st.info(
+        "이 패널은 Q6 64큐브를 한의사가 이해하기 쉬운 임상 언어로 번역한 화면입니다. "
+        "여기서 Q6는 약재가 유전자를 조절한다는 뜻이 아니라, "
+        "처방의 방향성을 보충·수렴·승양·배출·소통·완충의 6개 축으로 정리한 참고 지도입니다."
+    )
+
+    st.subheader(f"📌 [{selected_formula}] 한의사용 해석")
+    st.success(make_doctor_q6_sentence(f))
+
+    st.subheader("🔎 6개 처방 방향축")
+    q6_doctor_df = build_doctor_q6_axes(f)
+    st.dataframe(q6_doctor_df, use_container_width=True, hide_index=True)
+
+    st.subheader("🧑‍⚕️ 한의사가 실제로 볼 포인트")
+
+    st.markdown(
+        """
+- **보충축이 강함**: 허증, 피로, 기혈·음양 부족이 맞는지 확인
+- **수렴·안정축이 강함**: 불면, 도한, 허번, 심계, 진액 소모 확인
+- **승양축이 강함**: 중기하함, 처짐, 무력감이 맞는지 확인
+- **배출·이수축이 강함**: 부종, 담음, 습담, 소변 상태 확인
+- **소통·전환축이 강함**: 식체, 흉협고만, 기체, 어혈, 통증 확인
+- **완충·조화축이 강함**: 보사·한열·허실이 한쪽으로 치우치지 않았는지 확인
+"""
+    )
+
+    st.warning(
+        "주의: 이 패널은 처방 효과를 증명하거나 자동 처방을 내리는 기능이 아닙니다. "
+        "진맥·설진·증상·복용약·검사값과 함께 한의사가 최종 판단해야 합니다."
+    )
+
+    with st.expander("🔬 연구자용 Q6 원자료 보기"):
+        st.markdown(
+            """
+이 아래 표는 연구자용입니다.  
+한의사용 해석에서는 직접 볼 필요가 없으며, 처방 방향을 6개 축으로 번역하기 위한 배경 구조입니다.
+"""
+        )
+
+        demo_rows = []
+        for n in [0, 9, 18, 63]:
+            codon = n_to_codon(n)
+            demo_rows.append({
+                "64큐브 좌표 n": n,
+                "코돈": codon,
+                "아미노산": codon_to_aa(codon),
+                "효 순서 비트": n_to_hyo_bits(n),
+            })
+
+        st.dataframe(pd.DataFrame(demo_rows), use_container_width=True, hide_index=True)
 
 
 # ============================================================
