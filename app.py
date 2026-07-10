@@ -60,7 +60,7 @@ st.markdown(
 )
 
 # ==========================================
-# 2. 데이터베이스 세팅
+# 2. 데이터베이스 세팅 (한의사용 임상번역 패널 추가)
 # ==========================================
 @st.cache_data
 def load_data():
@@ -90,6 +90,41 @@ def load_data():
         ]
     })
     
+    # [신규 추가] 한의사용 임상 해석 패널용 DB
+    clinical = pd.DataFrame({
+        "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
+        "clinic_pattern": [
+            "심비양허, 허번불면, 영혈 소모 동반 가능성",
+            "비위습탁, 기체, 소화불량 및 복부 팽만 동반 가능성",
+            "비위기허, 중기하함, 만성 피로 및 기력 저하 동반 가능성",
+            "간신음허, 정혈 부족, 허열, 수분 정체 동반 가능성"
+        ],
+        "clinic_structure": [
+            "- 수렴·안신: 산조인\n- 자음·청열: 지모\n- 활혈·행기: 천궁\n- 조화: 감초\n- 해석: 소모된 진액을 보충하고 허열을 진정시키는 수렴형 처방 구조",
+            "- 조습·건비: 창출\n- 행기·제만: 후박\n- 이기·화담: 진피\n- 조화: 감초\n- 해석: 정체된 습탁을 제거하고 기운을 강하게 돌리는 배출/전환형 처방 구조",
+            "- 승양·보기: 황기, 승마, 시호\n- 건비·익기: 인삼, 백출, 감초\n- 해석: 아래로 처진 기운을 강하게 위로 끌어올리는 발산/상승형 처방 구조",
+            "- 삼보(三補): 숙지황·산수유·산약\n- 삼사(三瀉): 복령·택사·목단피\n- 해석: 보충축과 배출·완충축이 함께 배치된 균형형 처방 구조"
+        ],
+        "clinic_direction": [
+            "- 보사: 영혈 보충과 허열 제어가 중심\n- 승강: 수렴 및 하행 안정 방향이 우세\n- 출입: 외부 발산보다는 내부 저장과 안신 방향\n- 한열: 허열을 식히는 청열 완충 방향",
+            "- 보사: 사(瀉)법 위주 (제습, 행기)\n- 승강: 탁한 것을 내리고 기운을 소통시킴\n- 출입: 내부 정체 해소 및 배출 방향\n- 한열: 조습(燥濕)을 통한 냉습(冷濕) 제어",
+            "- 보사: 기혈 보충 중심\n- 승강: 강력한 상승(승양) 방향 우세\n- 출입: 위기를 보충하여 체표로 에너지를 발산하는 방향\n- 한열: 기허로 인한 허열을 조절하고 따뜻하게 보함",
+            "- 보사: 보충이 중심이나 사(瀉)법이 함께 배치됨\n- 승강: 저장·수렴·하행 안정 방향이 우세\n- 출입: 내부 보존과 수습 조절 방향\n- 한열: 허열 완충 방향"
+        ],
+        "clinic_caution": [
+            "- 주간 졸음 및 무기력 동반 환자 주의\n- 진정제/수면제 병용 시 과도한 진정 작용 확인\n- 소화장애 동반 시 위장 부담 여부 확인",
+            "- 임산부 및 심한 기허 환자 신중 투여\n- 장기 복용 시 진액 소모 우려\n- 건조한 체질(음허) 환자 주의 요망",
+            "- 고혈압, 상열감, 급성 염증 환자 주의\n- 과도한 발한 및 음허화왕 환자 주의\n- 혈당 변동성 모니터링",
+            "- 소화불량·설사 경향 환자는 숙지황 등으로 인한 위장 부담 확인\n- 항응고제 복용 환자는 목단피 등 혈류 관련 약재 확인\n- 당뇨약 복용 환자는 혈당 변화 확인\n- 간·신장 기능 저하 환자는 장기 복용 전 검사값 확인\n- 수술·시술 예정자는 복용 여부를 전문가와 상의"
+        ],
+        "clinic_followup": [
+            "- 수면의 질 및 수면 시간\n- 주간 피로도 및 인지 기능\n- 두근거림 및 가슴 답답함\n- 소화 상태",
+            "- 복부 팽만감 및 가스 발생 여부\n- 대변 상태\n- 식욕 및 소화력\n- 입마름 및 갈증 상태",
+            "- 만성 피로도 회복 여부\n- 소화력 및 식욕 상태\n- 상열감 또는 두통 발생 여부\n- 혈압 및 혈당 수치 변동",
+            "- 소화 상태\n- 설사 여부\n- 부종 변화\n- 피로감\n- 열감·도한\n- 혈당 변화\n- 간·신장 검사값"
+        ]
+    })
+
     polyhedrons = pd.DataFrame({
         "formula_name": ["산조인탕", "평위산", "보중익기탕", "육미지황환"],
         "octahedron": ["보존/수렴 강함, 완충 중간, 배출/발산 낮음", "배출/전환 강함, 완충 중간, 보존 낮음", "발산/상승 및 전환축 강함, 수렴/배출 낮음", "보존/보충/수렴 강함, 완충 중간, 급진전환 낮음"],
@@ -143,12 +178,12 @@ def load_data():
         "evidence_note": ["과다 복용 시 간효소 수치 상승", "일반적 용량 내 안전", "혈소판 응집 억제 작용", "위알도스테론증 유발 가능", "음허내열 환자 주의", "동물실험 자궁수축", "일반적 용량 내 안전", "면역계 자극 가능성 검토", "과량 복용 시 두근거림/혈압상승", "일반적 용량 내 안전", "자궁 수축 및 출혈 경향", "상열감 환자 주의", "특이 체질 간부담", "점액질로 인한 소화불량/설사", "일반적 용량 내 안전", "혈당 변동 가능성 관련 확인", "수분 대사 보조", "혈류 순환 관련 확인", "신장 배설 부담 가능성"]
     })
     
-    return formulas, polyhedrons, neijing, donguibogam, herbs, safety, vectors
+    return formulas, polyhedrons, neijing, donguibogam, clinical, herbs, safety, vectors
 
-df_formulas, df_polyhedrons, df_neijing, df_donguibogam, df_herbs, df_safety, df_vectors = load_data()
+df_formulas, df_polyhedrons, df_neijing, df_donguibogam, df_clinical, df_herbs, df_safety, df_vectors = load_data()
 
 # ==========================================
-# 패널 1: 환자 입력 패널 (Sidebar) - 고도화된 특이사항 폼
+# 패널 1: 환자 입력 패널 (Sidebar)
 # ==========================================
 st.sidebar.header("📝 환자 임상 정보 입력")
 patient_symp = st.sidebar.text_input("주증상 및 현대 진단명", placeholder="예: 소화불량, 황반변성, 디스크")
@@ -181,7 +216,6 @@ cond_surgery = st.sidebar.checkbox("수술/시술/치과치료 예정")
 cond_alcohol = st.sidebar.checkbox("음주량 많음")
 cond_lab = st.sidebar.checkbox("최근 검사 이상 (간/신장/혈액)")
 
-# [수정] 임상 검사값 예시(value) 데이터 추가로 사실감 극대화
 st.sidebar.subheader("임상 검사값 및 특이사항 입력")
 lab_ast_alt = st.sidebar.text_input("AST/ALT:", value="45 / 52 (U/L)")
 lab_creatinine = st.sidebar.text_input("Creatinine/eGFR:", value="1.2 mg/dL / 58")
@@ -197,26 +231,28 @@ selected_formula_name = st.sidebar.selectbox("분석할 한의학 처방 선택"
 analyze_btn = st.sidebar.button("처방 분석 및 리포트 생성", type="primary")
 
 # ==========================================
-# 메인 화면: 8단계 모듈 분석
+# 메인 화면: 9단계 모듈 분석
 # ==========================================
 if analyze_btn:
     formula_info = df_formulas[df_formulas["formula_name"] == selected_formula_name].iloc[0]
     poly_info = df_polyhedrons[df_polyhedrons["formula_name"] == selected_formula_name].iloc[0]
     nj_info = df_neijing[df_neijing["formula_name"] == selected_formula_name].iloc[0]
     db_info = df_donguibogam[df_donguibogam["formula_name"] == selected_formula_name].iloc[0]
+    clinical_info = df_clinical[df_clinical["formula_name"] == selected_formula_name].iloc[0]
     selected_id = formula_info["formula_id"]
     
     formula_herbs = df_herbs[df_herbs["formula_id"] == selected_id]
     formula_safety = df_safety[df_safety["herb_name"].isin(formula_herbs["herb_name"])]
     merged_herbs_vectors = pd.merge(formula_herbs, df_vectors, on="herb_name", how="left")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "전통 처방 Core 패널", 
         "동의보감 병렬 해석 패널",
         "Q6 64큐브 Core 주석 패널", 
         "H(3,4) 생물정보 확장 패널", 
         "다면체 방향성 시각화 패널", 
-        "황제내경 병렬 해석 패널", 
+        "황제내경 병렬 해석 패널",
+        "한의사용 임상 해석 패널",  # NEW
         "안전성 확인 패널", 
         "환자 설명문 패널"
     ])
@@ -308,8 +344,48 @@ if analyze_btn:
         st.info(nj_info['interpretation'])
 
     # ------------------------------------------
+    # [NEW] 7. 한의사용 임상 번역 패널
+    # ------------------------------------------
     with tab7:
-        st.subheader("🚨 7. 안전성 확인 패널 (Safety Filter)")
+        st.subheader("🧑‍⚕️ 7. 한의사용 임상 해석 패널 (Clinical Translation)")
+        st.warning(
+            "본 패널은 Q6, H(3,4), 다면체 분석 결과를 한의사가 임상에서 익숙한 "
+            "**변증·보사·승강출입·한열허실 언어**로 다시 번역한 설명층입니다. "
+            "자동 진단 또는 자동 처방 도구가 아니며, 교육 및 연구 보조 도구입니다."
+        )
+
+        st.markdown("#### 🔑 정보기하학 언어 임상 번역 가이드")
+        st.markdown("""
+        - **Q6 Core** → 처방의 기본 작용 방향을 6가지 축으로 정리한 것
+        - **H(3,4) Extension** → 처방이 놓인 방향 주변의 변증 전환 가능성을 넓게 보는 보조 지도
+        - **다면체 방향성** → 보·사, 승·강, 출·입, 수렴·발산의 균형 구조
+        - **RD 3:3 안정화** → 삼보삼사의 보충축과 배출·완충축이 균형을 이루는 구조
+        - **Octahedron 6방향** → 보존, 보충, 수렴, 완충, 발산, 배출의 기본 방향성
+        - **VE 12축** → 약재 방향을 더 세밀하게 나눈 귀경·오미·작용 방향의 보조 분류
+        - **TO 확장망** → 처방 방향이 전신 네트워크로 확장되는 양상을 보는 보조 구조
+        """)
+        st.divider()
+
+        st.markdown(f"### 🎯 [{selected_formula_name}] 임상 요약 리포트")
+        
+        st.subheader("1. 변증 요약")
+        st.info(clinical_info['clinic_pattern'])
+
+        st.subheader("2. 처방 구조 요약")
+        st.markdown(clinical_info['clinic_structure'])
+
+        st.subheader("3. 보사·승강출입 해석")
+        st.markdown(clinical_info['clinic_direction'])
+
+        st.subheader("4. 임상 주의 포인트")
+        st.markdown(clinical_info['clinic_caution'])
+
+        st.subheader("5. 추적 관찰 항목")
+        st.markdown(clinical_info['clinic_followup'])
+
+    # ------------------------------------------
+    with tab8:
+        st.subheader("🚨 8. 안전성 확인 패널 (Safety Filter)")
         st.info("**이 경고는 처방 금지 판정이 아니라, 실제 복용 전 의료인의 추가 확인이 필요한 항목을 표시한 것입니다.**")
         
         fatal_alerts, high_alerts, med_alerts, notice_alerts, info_alerts = [], [], [], [], []
@@ -367,8 +443,8 @@ if analyze_btn:
             st.markdown(f"- **혈압**: {lab_bp if lab_bp else '입력안됨'} | **수술예정**: {lab_surgery_date if lab_surgery_date else '없음'}")
 
     # ------------------------------------------
-    with tab8:
-        st.subheader("💬 8. 환자 설명문 패널")
+    with tab9:
+        st.subheader("💬 9. 환자 설명문 패널")
         
         if selected_formula_name == "육미지황환":
             symptom_warnings = [w for w, cond in zip(["혈당 변동 가능성", "소화 상태 및 설사 여부", "피로감 및 부종 여부"], [med_diab, cond_dig, cond_liver]) if cond]
