@@ -280,7 +280,7 @@ SAFETY_OPTIONS = ["항응고제/항혈소판제/NSAIDs","혈압약","당뇨약",
 with st.sidebar:
     st.header("입력")
     ex_name = st.selectbox("테스트 예시 불러오기", list(EXAMPLES.keys()), key="example_name")
-    if st.button("예시 적용", use_container_width=True):
+    if st.button("예시 적용", width="stretch"):
         for k, v in EXAMPLES[ex_name].items():
             st.session_state[k] = v
         st.rerun()
