@@ -49,6 +49,7 @@ def clean_df(rows: List[Dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(clean_rows).fillna("")
 
 def show_df(rows_or_df, height: int | None = None, use_container_width: bool = True):
+    # Streamlit Cloud 호환: height=None을 st.dataframe에 넘기지 않는다.
     if isinstance(rows_or_df, pd.DataFrame):
         df = rows_or_df.fillna("")
     else:
@@ -56,7 +57,13 @@ def show_df(rows_or_df, height: int | None = None, use_container_width: bool = T
     if df.empty:
         st.info("표시할 항목이 없습니다.")
     else:
-        st.dataframe(df, use_container_width=use_container_width, hide_index=True, height=height)
+        kwargs = {
+            "use_container_width": use_container_width,
+            "hide_index": True,
+        }
+        if isinstance(height, int) and height > 0:
+            kwargs["height"] = height
+        st.dataframe(df, **kwargs)
 
 def box(text: str, kind: str = "info"):
     text = safe_text(text)
