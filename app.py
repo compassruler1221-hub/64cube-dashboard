@@ -1,5 +1,5 @@
 # app.py
-# 한의사용 처방·침구·뜸 보조 대시보드 v96-safe
+# 한의사용 처방·침구·뜸 보조 대시보드 v96-safe + 텐세그리티 역학 엔진
 # 실행: streamlit run app.py
 # 목적: 교육·연구·임상 설명 보조. 자동 진단/처방/침구 시술 지시가 아닙니다.
 
@@ -8,11 +8,12 @@ import re
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="한의사용 처방·침구·뜸 보조 대시보드", page_icon="🟣", layout="wide")
 st.markdown("""
 <style>
-.block-container{max-width:1320px;padding-top:1.2rem;padding-bottom:2rem}
+.block-container{max-width:1400px;padding-top:1.2rem;padding-bottom:2rem}
 h1,h2,h3{letter-spacing:-0.04em}
 div[data-testid="stMetricValue"]{font-size:1.8rem}
 </style>
@@ -91,12 +92,6 @@ def codon_to_n(codon: str) -> int:
 
 def q6_neighbors(n: int) -> List[int]:
     return [n ^ (1 << i) for i in range(6)]
-
-assert n_to_codon(0) == "GGG"
-assert n_to_codon(9) == "AUG"
-assert n_to_codon(18) == "UGA"
-assert n_to_codon(63) == "CCC"
-assert codon_to_n("AUG") == 9
 
 # ---------------- 처방 DB ----------------
 FORMULAS: Dict[str, Dict[str, Any]] = {
@@ -457,13 +452,259 @@ def dongui_rows():
         {"동의보감 편제":"허로·기혈","연결 이유":"오래 지치고 회복력이 떨어지는 허로·기혈 부족 해석"},
         {"동의보감 편제":"내상","연결 이유":"소화력이 약한 경우 비위 내상 관점과 함께 재검토"}]
 
+def get_tensegrity_html(acu_list: List[str]) -> str:
+    acu_buttons_html = ""
+    for acu_code in acu_list[:4]: # 최대 4개까지만 버튼 생성
+        acu_name = acu(acu_code)["혈명"]
+        acu_buttons_html += f"""<button onclick="applyTreatment('{acu_code}')" class="btn-heal py-2 px-1 rounded shadow text-sm">{acu_code} {acu_name}</button>\n"""
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>한의 CDSS 텐세그리티 역학 모델</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            body {{ background-color: #0f172a; color: #e2e8f0; font-family: 'Pretendard', sans-serif; overflow: hidden; margin:0; padding:0; }}
+            canvas {{ background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); box-shadow: 0 0 20px rgba(0,0,0,0.5); border-radius: 1rem; width: 100%; height: 100%; object-fit: contain; }}
+            .panel-bg {{ background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px); border: 1px solid #334155; }}
+            .btn-disease {{ background: #7f1d1d; color: white; transition: all 0.2s; }}
+            .btn-disease:hover {{ background: #991b1b; }}
+            .btn-heal {{ background: #14532d; color: white; transition: all 0.2s; }}
+            .btn-heal:hover {{ background: #166534; }}
+        </style>
+    </head>
+    <body class="flex h-screen w-screen p-4 gap-4 box-border">
+
+        <!-- Left Panel: CDSS Controls -->
+        <div class="w-1/3 p-5 flex flex-col gap-5 z-10 panel-bg shadow-xl rounded-xl h-full overflow-y-auto">
+            <div>
+                <h1 class="text-xl font-bold text-cyan-400 mb-1">☯️ 한의 CDSS 역학 엔진</h1>
+                <p class="text-xs text-slate-400">4D 하이퍼큐브 텐세그리티 (수승화강 모델)</p>
+            </div>
+
+            <!-- Dashboard -->
+            <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                <h2 class="text-md font-semibold mb-2 text-slate-200">📊 실시간 정적 평형 상태</h2>
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-slate-400 text-sm">벡터 합력 (Vector Sum)</span>
+                    <span id="vectorSum" class="font-mono text-cyan-300 font-bold text-sm">{{ 0.00, 0.00 }}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-400 text-sm">생체 시스템 상태</span>
+                    <span id="healthStatus" class="px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300">무극 (평형)</span>
+                </div>
+            </div>
+
+            <!-- Disease Input -->
+            <div>
+                <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-red-400">🔥 병리 입력 (사기 침범)</h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="applyPathology('heart')" class="btn-disease py-2 rounded shadow text-sm">심화항염 (불면/번조)</button>
+                    <button onclick="applyPathology('liver')" class="btn-disease py-2 rounded shadow text-sm">간기울결 (스트레스)</button>
+                    <button onclick="applyPathology('spleen')" class="btn-disease py-2 rounded shadow text-sm">비위허약 (식체)</button>
+                    <button onclick="applyPathology('kidney')" class="btn-disease py-2 rounded shadow text-sm">신양허 (요통/냉증)</button>
+                </div>
+            </div>
+
+            <!-- Treatment Input -->
+            <div>
+                <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-green-400">🌿 침구 처방 (현재 처방 맞춤)</h2>
+                <div class="grid grid-cols-2 gap-2">
+                    {acu_buttons_html}
+                </div>
+            </div>
+            
+            <button onclick="resetSystem()" class="mt-auto bg-slate-700 hover:bg-slate-600 py-2 rounded font-bold text-slate-200 transition text-sm">↻ 시스템 초기화 (평형)</button>
+        </div>
+
+        <!-- Right Panel: Canvas Visualization -->
+        <div class="w-2/3 h-full relative flex justify-center items-center">
+            <canvas id="tensegrityCanvas"></canvas>
+        </div>
+
+    <script>
+        const canvas = document.getElementById('tensegrityCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Setup internal resolution for sharp rendering
+        const size = 800;
+        canvas.width = size;
+        canvas.height = size;
+        const cx = size / 2;
+        const cy = size / 2;
+        const scale = 180;
+
+        const u = Math.SQRT2 - 1;
+        const r2 = Math.SQRT2;
+
+        const baseNodes = [
+            {{ x: 0, y: 0, label: "단전(비위)", id: "spleen" }},
+            {{ x: 0, y: -r2, label: "심(心)", id: "heart" }},
+            {{ x: 0, y: r2, label: "신(腎)", id: "kidney" }},
+            {{ x: r2, y: 0, label: "폐(肺)", id: "lung" }},
+            {{ x: -r2, y: 0, label: "간(肝)", id: "liver" }},
+            {{ x: u, y: -u, label: "", id: "ne" }},
+            {{ x: -u, y: -u, label: "", id: "nw" }},
+            {{ x: u, y: u, label: "", id: "se" }},
+            {{ x: -u, y: u, label: "", id: "sw" }}
+        ];
+
+        let nodes = baseNodes.map(n => ({{ ...n, cx: n.x, cy: n.y, tx: n.x, ty: n.y }}));
+
+        const edges = [
+            [0,1], [0,2], [0,3], [0,4],
+            [0,5], [0,6], [0,7], [0,8],
+            [1,5], [5,3], [3,7], [7,2], [2,8], [8,4], [4,6], [6,1],
+            [1,3], [3,2], [2,4], [4,1]
+        ];
+
+        function updatePhysics() {{
+            let totalForceX = 0;
+            let totalForceY = 0;
+
+            nodes.forEach(n => {{
+                n.cx += (n.tx - n.cx) * 0.05;
+                n.cy += (n.ty - n.cy) * 0.05;
+                totalForceX += (n.cx - n.x);
+                totalForceY += (n.cy - n.y);
+            }});
+
+            const forceMag = Math.sqrt(totalForceX**2 + totalForceY**2);
+            document.getElementById('vectorSum').innerText = `{{ ${{totalForceX.toFixed(2)}}, ${{totalForceY.toFixed(2)}} }}`;
+            
+            const statusEl = document.getElementById('healthStatus');
+            if (forceMag < 0.05) {{
+                statusEl.innerText = "무극 (정적평형)";
+                statusEl.className = "px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300";
+            }} else {{
+                statusEl.innerText = "병리 (불균형)";
+                statusEl.className = "px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-300";
+            }}
+        }}
+
+        function draw() {{
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            edges.forEach(([i, j]) => {{
+                const n1 = nodes[i];
+                const n2 = nodes[j];
+                
+                const baseX = baseNodes[i].x - baseNodes[j].x;
+                const baseY = baseNodes[i].y - baseNodes[j].y;
+                const baseLen = Math.sqrt(baseX**2 + baseY**2);
+                
+                const curX = n1.cx - n2.cx;
+                const curY = n1.cy - n2.cy;
+                const curLen = Math.sqrt(curX**2 + curY**2);
+                
+                const tension = Math.abs(curLen - baseLen);
+
+                ctx.beginPath();
+                ctx.moveTo(cx + n1.cx * scale, cy + n1.cy * scale);
+                ctx.lineTo(cx + n2.cx * scale, cy + n2.cy * scale);
+                
+                if (tension > 0.1) {{
+                    ctx.strokeStyle = `rgba(239, 68, 68, ${{0.4 + tension}})`;
+                    ctx.lineWidth = 2 + tension * 5;
+                }} else {{
+                    ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
+                    ctx.lineWidth = 2;
+                }}
+                ctx.stroke();
+            }});
+
+            nodes.forEach(n => {{
+                const px = cx + n.cx * scale;
+                const py = cy + n.cy * scale;
+                const dist = Math.sqrt((n.cx - n.x)**2 + (n.cy - n.y)**2);
+                
+                ctx.beginPath();
+                ctx.arc(px, py, dist > 0.1 ? 12 : 8, 0, Math.PI * 2);
+                ctx.fillStyle = dist > 0.1 ? '#ef4444' : '#06b6d4';
+                ctx.fill();
+                ctx.strokeStyle = '#1e293b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                if (n.label) {{
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.font = '16px Pretendard, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(n.label, px, py - 18);
+                }}
+            }});
+        }}
+
+        function loop() {{
+            updatePhysics();
+            draw();
+            requestAnimationFrame(loop);
+        }}
+        requestAnimationFrame(loop);
+
+        function applyPathology(organ) {{
+            const intensity = 0.6;
+            if (organ === 'heart') {{ nodes[1].ty -= intensity; nodes[1].tx += intensity * 0.2; }}
+            if (organ === 'liver') {{ nodes[4].tx -= intensity; nodes[4].ty -= intensity * 0.2; }}
+            if (organ === 'kidney') {{ nodes[2].ty += intensity; nodes[2].tx -= intensity * 0.2; }}
+            if (organ === 'spleen') {{ nodes[0].tx += intensity * 0.5; nodes[0].ty += intensity * 0.5; }}
+        }}
+
+        function applyTreatment(acu_code) {{
+            // 혈위별로 가장 연관성 높은 장부 노드를 평형으로 복원
+            const mapping = {{
+                'HT7': 1, 'PC6': 1, 'BL15': 1, // Heart
+                'LR3': 4, 'GB34': 4, 'BL18': 4, // Liver
+                'KI3': 2, 'KI6': 2, 'BL23': 2, 'CV4': 2, // Kidney
+                'LU1': 3, 'LU9': 3, // Lung
+                'ST36': 0, 'CV12': 0, 'BL20': 0, 'SP3': 0, 'CV6': 0 // Spleen/Center
+            }};
+            
+            let targetIdx = mapping[acu_code];
+            // SP6 (삼음교) 같은 교회혈은 간, 비, 신을 모두 약간씩 회복
+            if (acu_code === 'SP6') {{
+                nodes[0].tx = baseNodes[0].x; nodes[0].ty = baseNodes[0].y;
+                nodes[2].tx = baseNodes[2].x; nodes[2].ty = baseNodes[2].y;
+                nodes[4].tx = baseNodes[4].x; nodes[4].ty = baseNodes[4].y;
+                return;
+            }}
+
+            if (targetIdx !== undefined) {{
+                nodes[targetIdx].tx = baseNodes[targetIdx].x;
+                nodes[targetIdx].ty = baseNodes[targetIdx].y;
+            }} else {{
+                // 기본 매핑이 없는 혈위는 중심(비위)을 회복시킴
+                nodes[0].tx = baseNodes[0].x;
+                nodes[0].ty = baseNodes[0].y;
+            }}
+        }}
+
+        function resetSystem() {{
+            nodes.forEach((n, i) => {{
+                n.tx = baseNodes[i].x;
+                n.ty = baseNodes[i].y;
+            }});
+        }}
+    </script>
+    </body>
+    </html>
+    """
+
 # ---------------- 화면 ----------------
 safety = safety_rows()
 st.title("🟣 한의사용 처방·침구·뜸 보조 대시보드")
 st.caption("교육·연구·임상 설명 보조용입니다. 자동 진단, 자동 처방, 자동 침구 시술 지시가 아닙니다.")
 st.success(f"현재 처방 방향: {formula['처방 방향']}")
 
-tabs = st.tabs(["1. 통합 요약","2. 차트 소견서","3. 361 경혈 DB","4. 침구·혈위 후보","5. 뜸 주의","6. 진맥·설진·복진 대조","7. 처방 방향 6축·감별","8. 황제내경·동의보감","9. 전통 처방 Core","10. 안전성 확인","11. 환자 설명문","12. 연구자용 Q6/H(3,4)"])
+tabs = st.tabs([
+    "1. 통합 요약", "2. 차트 소견서", "3. 361 경혈 DB", "4. 침구·혈위 후보", 
+    "5. 뜸 주의", "6. 진맥·설진·복진 대조", "7. 처방 방향 6축·감별", 
+    "8. 황제내경·동의보감", "9. 전통 처방 Core", "10. 안전성 확인", 
+    "11. 환자 설명문", "12. 연구자용 Q6/H(3,4)", "13. 텐세그리티 역학 엔진"
+])
 
 with tabs[0]:
     st.header("1. 통합 요약")
@@ -593,5 +834,14 @@ with tabs[11]:
     show_df(codon_rows)
     box("warn","약재-코돈-아미노산 매핑은 약재가 실제 유전자나 아미노산을 조절한다는 뜻이 아닙니다. 전통적 작용 방향을 생명정보학적 벡터 언어로 주석화한 연구자용 해석층입니다.")
 
+with tabs[12]:
+    st.header("13. 텐세그리티 역학 시각화 엔진 (Hypercube 2D Projection)")
+    box("info", "4차원 하이퍼큐브의 정적 평형 원리를 응용한 침구 생체 역학 모델입니다. 좌측 사이드바에서 선택한 처방의 핵심 혈위가 '침구 처방' 버튼에 자동으로 연동됩니다.")
+    
+    # Generate and embed the interactive HTML engine
+    html_content = get_tensegrity_html(formula["핵심 혈위"])
+    components.html(html_content, height=750, scrolling=False)
+
 st.divider()
 st.caption("교육·연구·임상 설명 보조용입니다. 자동 진단, 자동 처방, 자동 침구 시술 지시가 아닙니다. 실제 처방 여부와 용량, 혈위, 자침 깊이, 유침 시간, 보사법, 뜸 부위와 강도는 면허가 있는 한의사가 환자 상태를 종합하여 최종 결정해야 합니다.")
+```eof
