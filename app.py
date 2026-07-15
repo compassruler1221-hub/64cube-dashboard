@@ -452,246 +452,332 @@ def dongui_rows():
         {"동의보감 편제":"허로·기혈","연결 이유":"오래 지치고 회복력이 떨어지는 허로·기혈 부족 해석"},
         {"동의보감 편제":"내상","연결 이유":"소화력이 약한 경우 비위 내상 관점과 함께 재검토"}]
 
-def get_tensegrity_html(acu_list: List[str]) -> str:
-    acu_buttons_html = ""
-    for acu_code in acu_list[:4]: # 최대 4개까지만 버튼 생성
-        acu_name = acu(acu_code)["혈명"]
-        acu_buttons_html += f"""<button onclick="applyTreatment('{acu_code}')" class="btn-heal py-2 px-1 rounded shadow text-sm">{acu_code} {acu_name}</button>\n"""
+def get_tensegrity_html(
+    acu_list: List[str],
+    formula_name: str = "",
+    formula_data: Optional[Dict[str, Any]] = None,
+    chief_text: str = "",
+    safety_text: str = ""
+) -> str:
+    """현재 선택 처방에 맞춰 병리 패턴과 침구 후보가 자동 연동되는 텐세그리티 HTML."""
+    import json
 
-    return f"""
-    <!DOCTYPE html>
-    <html lang="ko">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>한의 CDSS 텐세그리티 역학 모델</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <style>
-            body {{ background-color: #0f172a; color: #e2e8f0; font-family: 'Pretendard', sans-serif; overflow: hidden; margin:0; padding:0; }}
-            canvas {{ background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); box-shadow: 0 0 20px rgba(0,0,0,0.5); border-radius: 1rem; width: 100%; height: 100%; object-fit: contain; }}
-            .panel-bg {{ background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px); border: 1px solid #334155; }}
-            .btn-disease {{ background: #7f1d1d; color: white; transition: all 0.2s; }}
-            .btn-disease:hover {{ background: #991b1b; }}
-            .btn-heal {{ background: #14532d; color: white; transition: all 0.2s; }}
-            .btn-heal:hover {{ background: #166534; }}
-        </style>
-    </head>
-    <body class="flex h-screen w-screen p-4 gap-4 box-border">
+    formula_data = formula_data or {}
 
-        <!-- Left Panel: CDSS Controls -->
-        <div class="w-1/3 p-5 flex flex-col gap-5 z-10 panel-bg shadow-xl rounded-xl h-full overflow-y-auto">
-            <div>
-                <h1 class="text-xl font-bold text-cyan-400 mb-1">☯️ 한의 CDSS 역학 엔진</h1>
-                <p class="text-xs text-slate-400">4D 하이퍼큐브 텐세그리티 (수승화강 모델)</p>
-            </div>
+    def organ_for_acu(code: str) -> str:
+        kidney = {"KI3", "KI6", "KI7", "BL23", "CV4"}
+        liver = {"BL18", "LR3", "GB34"}
+        spleen = {"ST36", "CV6", "CV12", "BL20", "SP3", "SP9", "ST25", "ST40", "CV9", "BL22"}
+        heart = {"HT7", "PC6", "BL15", "Anmian"}
+        lung = {"LU1", "LU9"}
+        if code in kidney:
+            return "신·하초"
+        if code in liver:
+            return "간·소통"
+        if code in spleen:
+            return "비위·중초"
+        if code in heart:
+            return "심·안신"
+        if code in lung:
+            return "폐·표"
+        return "중심 조화"
 
-            <!-- Dashboard -->
-            <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
-                <h2 class="text-md font-semibold mb-2 text-slate-200">📊 실시간 정적 평형 상태</h2>
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-slate-400 text-sm">벡터 합력 (Vector Sum)</span>
-                    <span id="vectorSum" class="font-mono text-cyan-300 font-bold text-sm">{{ 0.00, 0.00 }}</span>
-                </div>
-                <div class="flex justify-between items-center">
-                    <span class="text-slate-400 text-sm">생체 시스템 상태</span>
-                    <span id="healthStatus" class="px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300">무극 (평형)</span>
-                </div>
-            </div>
+    formula_profiles = {
+        "육미지황환": {
+            "pattern": "간신음허·허열도한·하초 허약",
+            "modelNote": "신·간 축이 약해지고 허열이 위로 뜨는 패턴을 먼저 표시합니다. KI3/BL23/KI6/SP6은 신·하초와 음혈축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"kidney": {"x": 0.00, "y": 0.55}, "liver": {"x": -0.32, "y": -0.06}, "heart": {"x": 0.18, "y": -0.32}, "spleen": {"x": 0.10, "y": 0.12}},
+            "focus": ["kidney", "liver", "heart"]
+        },
+        "보중익기탕": {
+            "pattern": "비위기허·중기하함·기허 피로",
+            "modelNote": "단전/비위 중심이 아래로 처지는 패턴을 먼저 표시합니다. ST36/CV6/GV20/BL20은 중심과 승양축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.18, "y": 0.45}, "heart": {"x": 0.00, "y": 0.18}, "kidney": {"x": 0.00, "y": 0.20}},
+            "focus": ["spleen", "heart"]
+        },
+        "산조인탕": {
+            "pattern": "허번불면·심계·불안·혈허",
+            "modelNote": "심축이 들뜨고 신수축이 안정되지 못하는 패턴을 표시합니다. HT7/PC6/KI6/Anmian은 심신 안정을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"heart": {"x": 0.26, "y": -0.50}, "kidney": {"x": -0.10, "y": 0.24}, "spleen": {"x": 0.10, "y": 0.08}},
+            "focus": ["heart", "kidney"]
+        },
+        "귀비탕": {
+            "pattern": "심비양허·불면·건망·심계",
+            "modelNote": "심과 비위 중심이 함께 약해진 패턴을 표시합니다. HT7/SP6/ST36/BL20/PC6은 심비축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"heart": {"x": 0.18, "y": -0.35}, "spleen": {"x": 0.22, "y": 0.28}},
+            "focus": ["heart", "spleen"]
+        },
+        "소요산": {
+            "pattern": "간울·흉협불편·비위 조화 저하",
+            "modelNote": "간축이 옆으로 당겨지고 비위 중심이 따라 흔들리는 패턴을 표시합니다. LR3/PC6/SP6/GB34는 소통축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"liver": {"x": -0.55, "y": -0.12}, "spleen": {"x": 0.16, "y": 0.15}, "heart": {"x": 0.10, "y": -0.10}},
+            "focus": ["liver", "spleen"]
+        },
+        "이진탕": {
+            "pattern": "담음정체·오심·흉민·어지럼",
+            "modelNote": "비위 중심과 폐·상초 소통축이 습담으로 막히는 패턴을 표시합니다. ST40/CV12/ST36/SP9은 담음·수습축을 완화하는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.35, "y": 0.18}, "lung": {"x": 0.42, "y": -0.06}},
+            "focus": ["spleen", "lung"]
+        },
+        "평위산": {
+            "pattern": "비위습탁·식체·복부팽만",
+            "modelNote": "중초 비위 노드가 막히고 무거워지는 패턴을 표시합니다. CV12/ST36/SP9/ST25는 중초 소통축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.45, "y": 0.30}},
+            "focus": ["spleen"]
+        },
+        "오령산": {
+            "pattern": "수습정체·소변불리·부종",
+            "modelNote": "신·수분대사축과 비위 수습축이 함께 정체된 패턴을 표시합니다. SP9/CV9/BL22/KI7은 이수·기화축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"kidney": {"x": -0.20, "y": 0.48}, "spleen": {"x": 0.22, "y": 0.22}},
+            "focus": ["kidney", "spleen"]
+        },
+        "십전대보탕": {
+            "pattern": "기혈양허·허한·회복 저하",
+            "modelNote": "비위·신·중심축의 전반적 저하 패턴을 표시합니다. ST36/CV6/BL20/BL23/GV4는 보충·온보축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.18, "y": 0.32}, "kidney": {"x": 0.00, "y": 0.32}, "heart": {"x": 0.00, "y": 0.14}},
+            "focus": ["spleen", "kidney"]
+        },
+        "팔진탕": {
+            "pattern": "기혈양허·피로·어지럼",
+            "modelNote": "비위 중심과 혈분 보조축이 약해진 패턴을 표시합니다. ST36/SP6/BL20/BL17/CV6은 기혈 보충축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.18, "y": 0.28}, "liver": {"x": -0.16, "y": 0.08}},
+            "focus": ["spleen", "liver"]
+        },
+        "사물탕": {
+            "pattern": "혈허·건조·어지럼",
+            "modelNote": "간혈·혈분축이 약해진 패턴을 표시합니다. SP6/BL17/BL20/ST36/LR3는 혈분 보조축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"liver": {"x": -0.34, "y": 0.06}, "spleen": {"x": 0.14, "y": 0.18}},
+            "focus": ["liver", "spleen"]
+        }
+    }
 
-            <!-- Disease Input -->
-            <div>
-                <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-red-400">🔥 병리 입력 (사기 침범)</h2>
-                <div class="grid grid-cols-2 gap-2">
-                    <button onclick="applyPathology('heart')" class="btn-disease py-2 rounded shadow text-sm">심화항염 (불면/번조)</button>
-                    <button onclick="applyPathology('liver')" class="btn-disease py-2 rounded shadow text-sm">간기울결 (스트레스)</button>
-                    <button onclick="applyPathology('spleen')" class="btn-disease py-2 rounded shadow text-sm">비위허약 (식체)</button>
-                    <button onclick="applyPathology('kidney')" class="btn-disease py-2 rounded shadow text-sm">신양허 (요통/냉증)</button>
-                </div>
-            </div>
+    profile = formula_profiles.get(formula_name, {
+        "pattern": formula_data.get("전통 변증", "선택 처방 패턴"),
+        "modelNote": "선택 처방의 핵심 혈위를 기준으로 중심 평형 회복 과정을 표시합니다.",
+        "offsets": {"spleen": {"x": 0.22, "y": 0.22}},
+        "focus": ["spleen"]
+    })
 
-            <!-- Treatment Input -->
-            <div>
-                <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-green-400">🌿 침구 처방 (현재 처방 맞춤)</h2>
-                <div class="grid grid-cols-2 gap-2">
-                    {acu_buttons_html}
-                </div>
-            </div>
-            
-            <button onclick="resetSystem()" class="mt-auto bg-slate-700 hover:bg-slate-600 py-2 rounded font-bold text-slate-200 transition text-sm">↻ 시스템 초기화 (평형)</button>
-        </div>
+    candidates = []
+    for i, code in enumerate(acu_list):
+        a = acu(code)
+        candidates.append({
+            "code": code,
+            "name": a.get("혈명", code),
+            "standard": a.get("standard_name", code),
+            "meridian": a.get("경락", ""),
+            "axis": a.get("처방 방향축", ""),
+            "organ": organ_for_acu(code),
+            "why": a.get("왜 후보인가", ""),
+            "meaning": a.get("임상 의미", ""),
+            "safety": a.get("주의점", ""),
+            "rank": i + 1
+        })
 
-        <!-- Right Panel: Canvas Visualization -->
-        <div class="w-2/3 h-full relative flex justify-center items-center">
-            <canvas id="tensegrityCanvas"></canvas>
-        </div>
+    payload = {
+        "formulaName": formula_name,
+        "formulaDirection": formula_data.get("처방 방향", ""),
+        "pattern": profile["pattern"],
+        "modelNote": profile["modelNote"],
+        "offsets": profile["offsets"],
+        "focus": profile.get("focus", []),
+        "chief": chief_text,
+        "safety": safety_text
+    }
 
-    <script>
-        const canvas = document.getElementById('tensegrityCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Setup internal resolution for sharp rendering
-        const size = 800;
-        canvas.width = size;
-        canvas.height = size;
-        const cx = size / 2;
-        const cy = size / 2;
-        const scale = 180;
+    template = """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>처방 연동 텐세그리티 역학 엔진</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{background:#0f172a;color:#e2e8f0;font-family:Pretendard,Arial,sans-serif;overflow:hidden;margin:0;padding:0}
+    canvas{background:radial-gradient(circle at center,#1e293b 0%,#0f172a 100%);box-shadow:0 0 20px rgba(0,0,0,.55);border-radius:1rem;width:100%;height:100%;object-fit:contain}
+    .panel-bg{background:rgba(30,41,59,.88);backdrop-filter:blur(10px);border:1px solid #334155}
+    .btn-disease{background:#7f1d1d;color:white;transition:.2s}.btn-disease:hover{background:#991b1b}
+    .btn-heal{background:#14532d;color:white;transition:.2s}.btn-heal:hover{background:#166534;transform:translateY(-1px)}
+    .btn-heal.primary{background:#0f766e}.btn-heal.primary:hover{background:#0d9488}
+    .badge{border:1px solid #475569;background:#1e293b;border-radius:999px;padding:2px 8px;font-size:11px;color:#cbd5e1}
+  </style>
+</head>
+<body class="flex h-screen w-screen p-4 gap-4 box-border">
+  <div class="w-1/3 p-5 flex flex-col gap-4 z-10 panel-bg shadow-xl rounded-xl h-full overflow-y-auto">
+    <div>
+      <h1 class="text-xl font-bold text-cyan-400 mb-1">☯️ 처방 연동 텐세그리티 엔진</h1>
+      <p class="text-xs text-slate-400">선택 처방 → 병기 패턴 자동 적용 → 침구 후보 클릭 시 평형 복원 시각화</p>
+    </div>
 
-        const u = Math.SQRT2 - 1;
-        const r2 = Math.SQRT2;
+    <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <h2 class="text-md font-semibold text-slate-200">📌 현재 처방 패턴</h2>
+        <span id="formulaName" class="badge"></span>
+      </div>
+      <p id="patternText" class="text-sm text-amber-200 leading-relaxed"></p>
+      <p id="modelNote" class="text-xs text-slate-400 mt-2 leading-relaxed"></p>
+    </div>
 
-        const baseNodes = [
-            {{ x: 0, y: 0, label: "단전(비위)", id: "spleen" }},
-            {{ x: 0, y: -r2, label: "심(心)", id: "heart" }},
-            {{ x: 0, y: r2, label: "신(腎)", id: "kidney" }},
-            {{ x: r2, y: 0, label: "폐(肺)", id: "lung" }},
-            {{ x: -r2, y: 0, label: "간(肝)", id: "liver" }},
-            {{ x: u, y: -u, label: "", id: "ne" }},
-            {{ x: -u, y: -u, label: "", id: "nw" }},
-            {{ x: u, y: u, label: "", id: "se" }},
-            {{ x: -u, y: u, label: "", id: "sw" }}
-        ];
+    <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+      <h2 class="text-md font-semibold mb-2 text-slate-200">📊 실시간 평형 상태</h2>
+      <div class="flex justify-between items-center mb-1"><span class="text-slate-400 text-sm">벡터 합력</span><span id="vectorSum" class="font-mono text-cyan-300 font-bold text-sm">{ 0.00, 0.00 }</span></div>
+      <div class="flex justify-between items-center mb-1"><span class="text-slate-400 text-sm">긴장도</span><span id="tensionValue" class="font-mono text-amber-300 text-sm">0.00</span></div>
+      <div class="flex justify-between items-center"><span class="text-slate-400 text-sm">상태</span><span id="healthStatus" class="px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300">무극</span></div>
+    </div>
 
-        let nodes = baseNodes.map(n => ({{ ...n, cx: n.x, cy: n.y, tx: n.x, ty: n.y }}));
+    <div>
+      <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-red-400">🔥 병리 입력</h2>
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="applyPathology('heart')" class="btn-disease py-2 rounded shadow text-sm">심화/불면</button>
+        <button onclick="applyPathology('liver')" class="btn-disease py-2 rounded shadow text-sm">간기울결</button>
+        <button onclick="applyPathology('spleen')" class="btn-disease py-2 rounded shadow text-sm">비위허약/식체</button>
+        <button onclick="applyPathology('kidney')" class="btn-disease py-2 rounded shadow text-sm">신허/하초</button>
+      </div>
+      <button onclick="applyFormulaPattern()" class="mt-2 w-full bg-amber-700 hover:bg-amber-600 py-2 rounded font-bold text-sm">현재 처방 병기 다시 적용</button>
+    </div>
 
-        const edges = [
-            [0,1], [0,2], [0,3], [0,4],
-            [0,5], [0,6], [0,7], [0,8],
-            [1,5], [5,3], [3,7], [7,2], [2,8], [8,4], [4,6], [6,1],
-            [1,3], [3,2], [2,4], [4,1]
-        ];
+    <div>
+      <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-green-400">🌿 처방 연동 침구 보조 후보</h2>
+      <div id="acuButtons" class="grid grid-cols-2 gap-2"></div>
+      <div id="acuDetail" class="mt-3 text-xs bg-slate-900/70 border border-slate-700 rounded-lg p-3 leading-relaxed text-slate-300">버튼을 누르면 해당 혈위가 어느 장부·축을 복원하는지 표시됩니다.</div>
+    </div>
 
-        function updatePhysics() {{
-            let totalForceX = 0;
-            let totalForceY = 0;
+    <button onclick="resetSystem()" class="mt-auto bg-slate-700 hover:bg-slate-600 py-2 rounded font-bold text-slate-200 transition text-sm">↻ 완전 초기화</button>
+  </div>
 
-            nodes.forEach(n => {{
-                n.cx += (n.tx - n.cx) * 0.05;
-                n.cy += (n.ty - n.cy) * 0.05;
-                totalForceX += (n.cx - n.x);
-                totalForceY += (n.cy - n.y);
-            }});
+  <div class="w-2/3 h-full relative flex justify-center items-center">
+    <canvas id="tensegrityCanvas"></canvas>
+  </div>
 
-            const forceMag = Math.sqrt(totalForceX**2 + totalForceY**2);
-            document.getElementById('vectorSum').innerText = `{{ ${{totalForceX.toFixed(2)}}, ${{totalForceY.toFixed(2)}} }}`;
-            
-            const statusEl = document.getElementById('healthStatus');
-            if (forceMag < 0.05) {{
-                statusEl.innerText = "무극 (정적평형)";
-                statusEl.className = "px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300";
-            }} else {{
-                statusEl.innerText = "병리 (불균형)";
-                statusEl.className = "px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-300";
-            }}
-        }}
+<script>
+const prescription = __PRESCRIPTION_JSON__;
+const candidates = __CANDIDATES_JSON__;
+const canvas = document.getElementById('tensegrityCanvas');
+const ctx = canvas.getContext('2d');
+const size = 820;
+canvas.width = size; canvas.height = size;
+const cx = size/2, cy = size/2, scale = 150;
+const u = Math.SQRT2 - 1, r2 = Math.SQRT2;
 
-        function draw() {{
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            edges.forEach(([i, j]) => {{
-                const n1 = nodes[i];
-                const n2 = nodes[j];
-                
-                const baseX = baseNodes[i].x - baseNodes[j].x;
-                const baseY = baseNodes[i].y - baseNodes[j].y;
-                const baseLen = Math.sqrt(baseX**2 + baseY**2);
-                
-                const curX = n1.cx - n2.cx;
-                const curY = n1.cy - n2.cy;
-                const curLen = Math.sqrt(curX**2 + curY**2);
-                
-                const tension = Math.abs(curLen - baseLen);
+const baseNodes = [
+  {x:0, y:0, label:'단전(비위)', id:'spleen'},
+  {x:0, y:-r2, label:'심(心)', id:'heart'},
+  {x:0, y:r2, label:'신(腎)', id:'kidney'},
+  {x:r2, y:0, label:'폐(肺)', id:'lung'},
+  {x:-r2, y:0, label:'간(肝)', id:'liver'},
+  {x:u, y:-u, label:'', id:'ne'},
+  {x:-u, y:-u, label:'', id:'nw'},
+  {x:u, y:u, label:'', id:'se'},
+  {x:-u, y:u, label:'', id:'sw'}
+];
+let nodes = baseNodes.map(n => ({...n, cx:n.x, cy:n.y, tx:n.x, ty:n.y, pulse:0}));
+const edges = [[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[1,5],[5,3],[3,7],[7,2],[2,8],[8,4],[4,6],[6,1],[1,3],[3,2],[2,4],[4,1]];
+const nodeIndex = Object.fromEntries(nodes.map((n,i)=>[n.id,i]));
 
-                ctx.beginPath();
-                ctx.moveTo(cx + n1.cx * scale, cy + n1.cy * scale);
-                ctx.lineTo(cx + n2.cx * scale, cy + n2.cy * scale);
-                
-                if (tension > 0.1) {{
-                    ctx.strokeStyle = `rgba(239, 68, 68, ${{0.4 + tension}})`;
-                    ctx.lineWidth = 2 + tension * 5;
-                }} else {{
-                    ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
-                    ctx.lineWidth = 2;
-                }}
-                ctx.stroke();
-            }});
+const acuTargetMap = {
+  'KI3':['kidney'], 'BL23':['kidney'], 'KI6':['kidney','heart'], 'KI7':['kidney'], 'CV4':['kidney','spleen'],
+  'BL18':['liver'], 'LR3':['liver'], 'GB34':['liver'],
+  'SP6':['spleen','kidney','liver'], 'ST36':['spleen'], 'CV6':['spleen','kidney'], 'CV12':['spleen'], 'BL20':['spleen'], 'SP3':['spleen'], 'SP9':['spleen','kidney'], 'ST25':['spleen'], 'ST40':['spleen','lung'], 'CV9':['spleen','kidney'], 'BL22':['spleen','kidney'],
+  'HT7':['heart'], 'PC6':['heart','spleen'], 'BL15':['heart'], 'Anmian':['heart'], 'GV20':['heart','spleen'],
+  'LU1':['lung'], 'LU9':['lung']
+};
 
-            nodes.forEach(n => {{
-                const px = cx + n.cx * scale;
-                const py = cy + n.cy * scale;
-                const dist = Math.sqrt((n.cx - n.x)**2 + (n.cy - n.y)**2);
-                
-                ctx.beginPath();
-                ctx.arc(px, py, dist > 0.1 ? 12 : 8, 0, Math.PI * 2);
-                ctx.fillStyle = dist > 0.1 ? '#ef4444' : '#06b6d4';
-                ctx.fill();
-                ctx.strokeStyle = '#1e293b';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                if (n.label) {{
-                    ctx.fillStyle = '#cbd5e1';
-                    ctx.font = '16px Pretendard, sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(n.label, px, py - 18);
-                }}
-            }});
-        }}
-
-        function loop() {{
-            updatePhysics();
-            draw();
-            requestAnimationFrame(loop);
-        }}
-        requestAnimationFrame(loop);
-
-        function applyPathology(organ) {{
-            const intensity = 0.6;
-            if (organ === 'heart') {{ nodes[1].ty -= intensity; nodes[1].tx += intensity * 0.2; }}
-            if (organ === 'liver') {{ nodes[4].tx -= intensity; nodes[4].ty -= intensity * 0.2; }}
-            if (organ === 'kidney') {{ nodes[2].ty += intensity; nodes[2].tx -= intensity * 0.2; }}
-            if (organ === 'spleen') {{ nodes[0].tx += intensity * 0.5; nodes[0].ty += intensity * 0.5; }}
-        }}
-
-        function applyTreatment(acu_code) {{
-            // 혈위별로 가장 연관성 높은 장부 노드를 평형으로 복원
-            const mapping = {{
-                'HT7': 1, 'PC6': 1, 'BL15': 1, // Heart
-                'LR3': 4, 'GB34': 4, 'BL18': 4, // Liver
-                'KI3': 2, 'KI6': 2, 'BL23': 2, 'CV4': 2, // Kidney
-                'LU1': 3, 'LU9': 3, // Lung
-                'ST36': 0, 'CV12': 0, 'BL20': 0, 'SP3': 0, 'CV6': 0 // Spleen/Center
-            }};
-            
-            let targetIdx = mapping[acu_code];
-            // SP6 (삼음교) 같은 교회혈은 간, 비, 신을 모두 약간씩 회복
-            if (acu_code === 'SP6') {{
-                nodes[0].tx = baseNodes[0].x; nodes[0].ty = baseNodes[0].y;
-                nodes[2].tx = baseNodes[2].x; nodes[2].ty = baseNodes[2].y;
-                nodes[4].tx = baseNodes[4].x; nodes[4].ty = baseNodes[4].y;
-                return;
-            }}
-
-            if (targetIdx !== undefined) {{
-                nodes[targetIdx].tx = baseNodes[targetIdx].x;
-                nodes[targetIdx].ty = baseNodes[targetIdx].y;
-            }} else {{
-                // 기본 매핑이 없는 혈위는 중심(비위)을 회복시킴
-                nodes[0].tx = baseNodes[0].x;
-                nodes[0].ty = baseNodes[0].y;
-            }}
-        }}
-
-        function resetSystem() {{
-            nodes.forEach((n, i) => {{
-                n.tx = baseNodes[i].x;
-                n.ty = baseNodes[i].y;
-            }});
-        }}
-    </script>
-    </body>
-    </html>
-    """
+function setNodeTarget(id, dx, dy){
+  const i = nodeIndex[id]; if(i === undefined) return;
+  nodes[i].tx = baseNodes[i].x + dx; nodes[i].ty = baseNodes[i].y + dy;
+}
+function relaxNode(id, strength=0.88){
+  const i = nodeIndex[id]; if(i === undefined) return;
+  nodes[i].tx = nodes[i].tx + (baseNodes[i].x - nodes[i].tx)*strength;
+  nodes[i].ty = nodes[i].ty + (baseNodes[i].y - nodes[i].ty)*strength;
+  nodes[i].pulse = 1.0;
+}
+function applyFormulaPattern(){
+  resetTargetsOnly();
+  Object.entries(prescription.offsets || {}).forEach(([id, v]) => setNodeTarget(id, v.x || 0, v.y || 0));
+  document.getElementById('acuDetail').innerHTML = `<b>${prescription.formulaName}</b> 병기 패턴이 적용되었습니다.<br>${prescription.modelNote}`;
+}
+function resetTargetsOnly(){ nodes.forEach((n,i)=>{n.tx=baseNodes[i].x; n.ty=baseNodes[i].y;}); }
+function resetSystem(){ resetTargetsOnly(); nodes.forEach(n=>{n.pulse=0;}); document.getElementById('acuDetail').innerText='완전 초기화: 모든 노드가 기준 정적평형 위치로 복귀합니다.'; }
+function applyPathology(organ){
+  const intensity = 0.58;
+  if(organ==='heart') setNodeTarget('heart', 0.18, -intensity);
+  if(organ==='liver') setNodeTarget('liver', -intensity, -0.14);
+  if(organ==='kidney') setNodeTarget('kidney', -0.14, intensity);
+  if(organ==='spleen') setNodeTarget('spleen', 0.42, 0.35);
+}
+function applyTreatment(code){
+  const targets = acuTargetMap[code] || ['spleen'];
+  targets.forEach(t => relaxNode(t, code==='SP6' ? 0.96 : 0.86));
+  const c = candidates.find(x=>x.code===code) || {name:code, why:'', meaning:'', safety:''};
+  document.getElementById('acuDetail').innerHTML = `<b>${code} ${c.name}</b><br>복원축: ${targets.join(', ')}<br>임상 의미: ${c.meaning || '-'}<br>후보 근거: ${c.why || '-'}<br><span class="text-amber-200">안전 확인: ${c.safety || '환자 상태 확인'}</span>`;
+}
+function renderCandidates(){
+  document.getElementById('formulaName').innerText = prescription.formulaName || '선택 처방';
+  document.getElementById('patternText').innerText = prescription.pattern || '';
+  document.getElementById('modelNote').innerText = prescription.modelNote || '';
+  const box = document.getElementById('acuButtons');
+  box.innerHTML = '';
+  candidates.forEach((c, idx)=>{
+    const btn = document.createElement('button');
+    btn.className = 'btn-heal py-2 px-2 rounded shadow text-sm text-left ' + (idx < 2 ? 'primary' : '');
+    btn.innerHTML = `<span class="text-xs opacity-80">추천 ${idx+1} · ${c.organ}</span><br><b>${c.code} ${c.name}</b>`;
+    btn.onclick = () => applyTreatment(c.code);
+    box.appendChild(btn);
+  });
+}
+function updatePhysics(){
+  let sx=0, sy=0, tensionSum=0;
+  nodes.forEach(n=>{
+    n.cx += (n.tx-n.cx)*0.055; n.cy += (n.ty-n.cy)*0.055;
+    sx += (n.cx-n.x); sy += (n.cy-n.y);
+    n.pulse *= 0.94;
+  });
+  edges.forEach(([i,j])=>{
+    const a=nodes[i], b=nodes[j], ba=baseNodes[i], bb=baseNodes[j];
+    const baseLen=Math.hypot(ba.x-bb.x, ba.y-bb.y);
+    const curLen=Math.hypot(a.cx-b.cx, a.cy-b.cy);
+    tensionSum += Math.abs(curLen-baseLen);
+  });
+  const mag=Math.hypot(sx,sy);
+  document.getElementById('vectorSum').innerText = `{ ${sx.toFixed(2)}, ${sy.toFixed(2)} }`;
+  document.getElementById('tensionValue').innerText = tensionSum.toFixed(2);
+  const status=document.getElementById('healthStatus');
+  if(mag < 0.05 && tensionSum < 0.25){ status.innerText='무극 (정적평형)'; status.className='px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300'; }
+  else if(mag < 0.35){ status.innerText='회복 중'; status.className='px-2 py-1 rounded text-xs font-bold bg-amber-900 text-amber-200'; }
+  else { status.innerText='병리 (불균형)'; status.className='px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-300'; }
+}
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  edges.forEach(([i,j])=>{
+    const n1=nodes[i], n2=nodes[j], b1=baseNodes[i], b2=baseNodes[j];
+    const baseLen=Math.hypot(b1.x-b2.x,b1.y-b2.y), curLen=Math.hypot(n1.cx-n2.cx,n1.cy-n2.cy);
+    const t=Math.abs(curLen-baseLen);
+    ctx.beginPath(); ctx.moveTo(cx+n1.cx*scale, cy+n1.cy*scale); ctx.lineTo(cx+n2.cx*scale, cy+n2.cy*scale);
+    if(t>0.10){ ctx.strokeStyle=`rgba(239,68,68,${Math.min(.95,.35+t)})`; ctx.lineWidth=2+t*6; }
+    else { ctx.strokeStyle='rgba(6,182,212,.32)'; ctx.lineWidth=2; }
+    ctx.stroke();
+  });
+  nodes.forEach(n=>{
+    const px=cx+n.cx*scale, py=cy+n.cy*scale, dist=Math.hypot(n.cx-n.x,n.cy-n.y);
+    ctx.beginPath(); ctx.arc(px,py, 8 + dist*7 + n.pulse*7, 0, Math.PI*2);
+    ctx.fillStyle = n.pulse>0.05 ? '#22c55e' : (dist>0.10 ? '#ef4444' : '#06b6d4'); ctx.fill();
+    ctx.strokeStyle='#0f172a'; ctx.lineWidth=2; ctx.stroke();
+    if(n.label){ ctx.fillStyle='#cbd5e1'; ctx.font='16px Pretendard, Arial'; ctx.textAlign='center'; ctx.fillText(n.label, px, py-18); }
+  });
+}
+function loop(){ updatePhysics(); draw(); requestAnimationFrame(loop); }
+renderCandidates(); applyFormulaPattern(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
+"""
+    return (
+        template
+        .replace("__PRESCRIPTION_JSON__", json.dumps(payload, ensure_ascii=False))
+        .replace("__CANDIDATES_JSON__", json.dumps(candidates, ensure_ascii=False))
+    )
 
 # ---------------- 화면 ----------------
 safety = safety_rows()
@@ -835,11 +921,11 @@ with tabs[11]:
     box("warn","약재-코돈-아미노산 매핑은 약재가 실제 유전자나 아미노산을 조절한다는 뜻이 아닙니다. 전통적 작용 방향을 생명정보학적 벡터 언어로 주석화한 연구자용 해석층입니다.")
 
 with tabs[12]:
-    st.header("13. 텐세그리티 역학 시각화 엔진 (Hypercube 2D Projection)")
-    box("info", "4차원 하이퍼큐브의 정적 평형 원리를 응용한 침구 생체 역학 모델입니다. 좌측 사이드바에서 선택한 처방의 핵심 혈위가 '침구 처방' 버튼에 자동으로 연동됩니다.")
+    st.header("13. 처방 연동 텐세그리티 역학 엔진 (Hypercube 2D Projection)")
+    box("info", "4차원 하이퍼큐브의 정적 평형 원리를 응용한 침구 생체 역학 모델입니다. 좌측 사이드바에서 선택한 처방의 병기 패턴이 텐세그리티에 자동 적용되고, 핵심 혈위 버튼을 누르면 해당 장부·축이 평형으로 복원되는 과정을 보여줍니다.")
     
     # Generate and embed the interactive HTML engine
-    html_content = get_tensegrity_html(formula["핵심 혈위"])
+    html_content = get_tensegrity_html(formula["핵심 혈위"], formula_name, formula, chief, safety_summary(safety))
     components.html(html_content, height=750, scrolling=False)
 
 st.divider()
