@@ -1,2 +1,6 @@
-streamlit>=1.50,<2
-pandas>=2.2,<3
+streamlit>=1.40
+numpy>=2.0
+pandas>=2.0
+plotly>=5.20
+sympy>=1.13
+scipy>=1.14
