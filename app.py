@@ -1,20 +1,24 @@
 # app.py
-# 한의학 기하학 구조 보조도구 v3.0
+# 한의학 기하학 구조 보조도구 v4.0 통합판
 # 실행: streamlit run app.py
 # 목적: 처방·약재·경혈·경락·오행·육경 등 한의학 자료를
 #       기하학적 노드·모서리·축·대칭·그래프로 배치하고 검증하는 연구/교육 도구
 
 from __future__ import annotations
 
+import io
 import json
 import math
-from dataclasses import dataclass
+from datetime import datetime
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import sympy as sp
+from scipy.spatial import ConvexHull
 
 
 # -----------------------------------------------------------------------------
@@ -1234,6 +1238,536 @@ def exact_audit_rows() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 
 # -----------------------------------------------------------------------------
+# 추가 통합 엔진: 황금비 다면체·정사영·십간 벡터·12경맥 네트워크
+# -----------------------------------------------------------------------------
+POLY_PHI = (1.0 + math.sqrt(5.0)) / 2.0
+POLY_TAU = 2.0 * math.pi
+TEN_STEM_NAMES = ["갑", "을", "병", "정", "무", "기", "경", "신", "임", "계"]
+TEN_STEM_PHASES = ["목", "목", "화", "화", "토", "토", "금", "금", "수", "수"]
+TEN_STEM_YINYANG = ["양", "음", "양", "음", "양", "음", "양", "음", "양", "음"]
+MERIDIAN_LABELS_12 = [
+    "수태음폐경", "수양명대장경", "족양명위경", "족태음비경",
+    "수소음심경", "수태양소장경", "족태양방광경", "족소음신경",
+    "수궐음심포경", "수소양삼초경", "족소양담경", "족궐음간경",
+]
+
+
+@dataclass
+class PolyVectorState:
+    x: float
+    y: float
+    radius: float
+    theta_deg: float
+    opposite_x: float
+    opposite_y: float
+    opposite_theta_deg: float
+    nearest_phase_index: int
+    opposite_phase_index: int
+    balance_index: float
+
+
+# -----------------------------------------------------------------------------
+# 기하 생성 함수
+# -----------------------------------------------------------------------------
+def unique_rows(points: Iterable[Sequence[float]], decimals: int = 12) -> np.ndarray:
+    arr = np.asarray(list(points), dtype=float)
+    return np.unique(np.round(arr, decimals=decimals), axis=0)
+
+
+def icosahedron_vertices() -> np.ndarray:
+    """정20면체 표준 좌표 12개."""
+    pts: List[Tuple[float, float, float]] = []
+    for s1 in (-1.0, 1.0):
+        for s2 in (-1.0, 1.0):
+            pts.extend(
+                [
+                    (0.0, s1, s2 * POLY_PHI),
+                    (s1, s2 * POLY_PHI, 0.0),
+                    (s2 * POLY_PHI, 0.0, s1),
+                ]
+            )
+    return unique_rows(pts)
+
+
+def dodecahedron_vertices() -> np.ndarray:
+    """정12면체 표준 좌표 20개."""
+    pts: List[Tuple[float, float, float]] = []
+    inv = 1.0 / POLY_PHI
+
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            for sz in (-1.0, 1.0):
+                pts.append((sx, sy, sz))
+
+    for s1 in (-1.0, 1.0):
+        for s2 in (-1.0, 1.0):
+            pts.extend(
+                [
+                    (0.0, s1 * inv, s2 * POLY_PHI),
+                    (s1 * inv, s2 * POLY_PHI, 0.0),
+                    (s2 * POLY_PHI, 0.0, s1 * inv),
+                ]
+            )
+    return unique_rows(pts)
+
+
+def edges_by_minimum_distance(points: np.ndarray, tolerance: float = 1e-7) -> List[Tuple[int, int]]:
+    """정다면체처럼 모든 모서리 길이가 같은 점 집합에서 최소 비영 거리로 모서리 추출."""
+    distances: List[float] = []
+    n = len(points)
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = float(np.linalg.norm(points[i] - points[j]))
+            if d > tolerance:
+                distances.append(d)
+    edge_length = min(distances)
+    return [
+        (i, j)
+        for i in range(n)
+        for j in range(i + 1, n)
+        if abs(float(np.linalg.norm(points[i] - points[j])) - edge_length) <= tolerance
+    ]
+
+
+def icosidodecahedron_from_icosahedron() -> Tuple[np.ndarray, List[Tuple[int, int]]]:
+    """정20면체 모서리 중점 30개로 정이십십이면체를 구성."""
+    ico = icosahedron_vertices()
+    ico_edges = edges_by_minimum_distance(ico)
+    mids = unique_rows((ico[i] + ico[j]) / 2.0 for i, j in ico_edges)
+    return mids, edges_by_minimum_distance(mids)
+
+
+def grouped_hull_faces(points: np.ndarray, decimals: int = 8) -> List[Dict[str, object]]:
+    """ConvexHull의 삼각분할 면을 같은 평면끼리 합쳐 다각형 면으로 복원."""
+    hull = ConvexHull(points)
+    grouped: Dict[Tuple[float, ...], set[int]] = {}
+    equation_by_key: Dict[Tuple[float, ...], np.ndarray] = {}
+
+    for simplex, equation in zip(hull.simplices, hull.equations):
+        key = tuple(np.round(equation, decimals=decimals))
+        grouped.setdefault(key, set()).update(int(v) for v in simplex)
+        equation_by_key[key] = np.asarray(equation, dtype=float)
+
+    return [
+        {
+            "vertices": sorted(grouped[key]),
+            "equation": equation_by_key[key],
+        }
+        for key in grouped
+    ]
+
+
+def rhombic_triacontahedron_dual() -> Tuple[np.ndarray, List[Tuple[int, int]]]:
+    """
+    정이십십이면체의 쌍대(dual)를 계산해 마름모30면체의 32꼭짓점·60모서리를 구성.
+    좌표는 수치 시각화용이며, 위상 수(V,E,F)는 알고리즘으로 검증한다.
+    """
+    primal, _ = icosidodecahedron_from_icosahedron()
+    faces = grouped_hull_faces(primal)
+
+    dual_vertices: List[np.ndarray] = []
+    face_vertex_sets: List[set[int]] = []
+    for face in faces:
+        equation = np.asarray(face["equation"], dtype=float)
+        normal = equation[:3]
+        offset = float(equation[3])
+        if offset >= 0:
+            normal = -normal
+            offset = -offset
+        dual_vertices.append(normal / (-offset))
+        face_vertex_sets.append(set(face["vertices"]))
+
+    dual_edges: List[Tuple[int, int]] = []
+    for i in range(len(face_vertex_sets)):
+        for j in range(i + 1, len(face_vertex_sets)):
+            if len(face_vertex_sets[i].intersection(face_vertex_sets[j])) == 2:
+                dual_edges.append((i, j))
+
+    return np.asarray(dual_vertices), dual_edges
+
+
+@st.cache_data
+def build_polyhedral_solids() -> Dict[str, Dict[str, object]]:
+    ico = icosahedron_vertices()
+    dod = dodecahedron_vertices()
+    ido, ido_edges = icosidodecahedron_from_icosahedron()
+    rt, rt_edges = rhombic_triacontahedron_dual()
+
+    return {
+        "정20면체": {"vertices": ico, "edges": edges_by_minimum_distance(ico), "faces": 20},
+        "정12면체": {"vertices": dod, "edges": edges_by_minimum_distance(dod), "faces": 12},
+        "정이십십이면체": {"vertices": ido, "edges": ido_edges, "faces": 32},
+        "마름모30면체": {"vertices": rt, "edges": rt_edges, "faces": 30},
+    }
+
+
+# -----------------------------------------------------------------------------
+# 수학 검증 / 2D 투영
+# -----------------------------------------------------------------------------
+def poly_exact_symbolic_checks() -> pd.DataFrame:
+    phi = (sp.Integer(1) + sp.sqrt(5)) / 2
+    k = sp.symbols("k", integer=True)
+
+    sum_cos = sp.simplify(sum(sp.cos(2 * sp.pi * i / 10) for i in range(10)))
+    sum_sin = sp.simplify(sum(sp.sin(2 * sp.pi * i / 10) for i in range(10)))
+
+    rows = [
+        {
+            "검증식": "φ² = φ + 1",
+            "기호 결과": sp.simplify(phi**2 - phi - 1),
+            "판정": "참" if sp.simplify(phi**2 - phi - 1) == 0 else "재검토",
+        },
+        {
+            "검증식": "φ⁻¹ = φ - 1",
+            "기호 결과": sp.simplify(1 / phi - (phi - 1)),
+            "판정": "참" if sp.simplify(1 / phi - (phi - 1)) == 0 else "재검토",
+        },
+        {
+            "검증식": "정10각형 Σcos(2πk/10) = 0",
+            "기호 결과": sum_cos,
+            "판정": "참" if sum_cos == 0 else "재검토",
+        },
+        {
+            "검증식": "정10각형 Σsin(2πk/10) = 0",
+            "기호 결과": sum_sin,
+            "판정": "참" if sum_sin == 0 else "재검토",
+        },
+        {
+            "검증식": "R(θ+2π) = R(θ)",
+            "기호 결과": "삼각함수 주기성",
+            "판정": "참",
+        },
+        {
+            "검증식": "D(t+10) = D(t), θ=2πt/10",
+            "기호 결과": sp.simplify(sp.exp(sp.I * 2 * sp.pi * (k + 10) / 10) - sp.exp(sp.I * 2 * sp.pi * k / 10)),
+            "판정": "참",
+        },
+    ]
+    return pd.DataFrame(rows).astype(str)
+
+
+def decagon_points(radius: float = 1.0, phase_offset_deg: float = 90.0) -> np.ndarray:
+    angles = np.deg2rad(phase_offset_deg) + np.arange(10) * POLY_TAU / 10.0
+    return np.column_stack((radius * np.cos(angles), radius * np.sin(angles)))
+
+
+def project_xy(points: np.ndarray, rotation_deg: float = 0.0) -> np.ndarray:
+    """Z축 회전 후 XY 정사영."""
+    theta = math.radians(rotation_deg)
+    rot = np.array(
+        [
+            [math.cos(theta), -math.sin(theta), 0.0],
+            [math.sin(theta), math.cos(theta), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    rotated = points @ rot.T
+    return rotated[:, :2]
+
+
+def phase_vector(weights: Sequence[float], phase_offset_deg: float = 90.0) -> PolyVectorState:
+    if len(weights) != 10:
+        raise ValueError("십간 가중치는 정확히 10개여야 합니다.")
+
+    pts = decagon_points(1.0, phase_offset_deg)
+    w = np.asarray(weights, dtype=float)
+    vector = (pts * w[:, None]).sum(axis=0)
+    x, y = float(vector[0]), float(vector[1])
+    radius = float(np.linalg.norm(vector))
+    theta = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0 if radius > 1e-12 else 0.0
+    opposite_theta = (theta + 180.0) % 360.0
+
+    point_angles = (np.degrees(np.arctan2(pts[:, 1], pts[:, 0])) + 360.0) % 360.0
+
+    def angular_distance(a: float, b: float) -> float:
+        return abs((a - b + 180.0) % 360.0 - 180.0)
+
+    nearest = int(np.argmin([angular_distance(theta, a) for a in point_angles]))
+    opposite = int(np.argmin([angular_distance(opposite_theta, a) for a in point_angles]))
+
+    # 0~100의 기하학적 중심성 지표. 임상 건강 점수가 아님.
+    scale = max(float(np.sum(np.abs(w))), 1.0)
+    normalized_radius = min(radius / scale, 1.0)
+    balance_index = 100.0 * (1.0 - normalized_radius)
+
+    return PolyVectorState(
+        x=x,
+        y=y,
+        radius=radius,
+        theta_deg=theta,
+        opposite_x=-x,
+        opposite_y=-y,
+        opposite_theta_deg=opposite_theta,
+        nearest_phase_index=nearest,
+        opposite_phase_index=opposite,
+        balance_index=balance_index,
+    )
+
+
+# -----------------------------------------------------------------------------
+# 그래프 / 시각화
+# -----------------------------------------------------------------------------
+def edge_traces_3d(points: np.ndarray, edges: Sequence[Tuple[int, int]]) -> Tuple[List[float], List[float], List[float]]:
+    x: List[float] = []
+    y: List[float] = []
+    z: List[float] = []
+    for i, j in edges:
+        x.extend([float(points[i, 0]), float(points[j, 0]), None])
+        y.extend([float(points[i, 1]), float(points[j, 1]), None])
+        z.extend([float(points[i, 2]), float(points[j, 2]), None])
+    return x, y, z
+
+
+def polyhedron_figure(name: str, points: np.ndarray, edges: Sequence[Tuple[int, int]], labels: Sequence[str] | None = None) -> go.Figure:
+    ex, ey, ez = edge_traces_3d(points, edges)
+    hover = labels if labels is not None and len(labels) == len(points) else [f"v{i}" for i in range(len(points))]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter3d(
+            x=ex,
+            y=ey,
+            z=ez,
+            mode="lines",
+            line={"width": 3},
+            hoverinfo="skip",
+            name="모서리",
+        )
+    )
+    fig.add_trace(
+        go.Scatter3d(
+            x=points[:, 0],
+            y=points[:, 1],
+            z=points[:, 2],
+            mode="markers+text" if labels else "markers",
+            text=labels,
+            textposition="top center",
+            marker={"size": 5},
+            hovertext=hover,
+            hovertemplate="%{hovertext}<br>(%{x:.4f}, %{y:.4f}, %{z:.4f})<extra></extra>",
+            name="꼭짓점",
+        )
+    )
+    fig.update_layout(
+        title=name,
+        height=640,
+        margin={"l": 0, "r": 0, "t": 45, "b": 0},
+        scene={
+            "aspectmode": "data",
+            "xaxis_title": "X",
+            "yaxis_title": "Y",
+            "zaxis_title": "Z",
+        },
+        showlegend=False,
+    )
+    return fig
+
+
+def decagon_vector_figure(weights: Sequence[float], state: PolyVectorState, phase_offset_deg: float = 90.0) -> go.Figure:
+    pts = decagon_points(1.0, phase_offset_deg)
+    closed = np.vstack([pts, pts[0]])
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=closed[:, 0], y=closed[:, 1], mode="lines", name="정10각형",
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=pts[:, 0],
+            y=pts[:, 1],
+            mode="markers+text",
+            text=[f"{TEN_STEM_NAMES[i]}({TEN_STEM_PHASES[i]}·{TEN_STEM_YINYANG[i]})" for i in range(10)],
+            textposition="top center",
+            marker={"size": [8 + 2 * abs(float(v)) for v in weights]},
+            customdata=np.asarray(weights),
+            hovertemplate="%{text}<br>가중치=%{customdata:.2f}<extra></extra>",
+            name="십간 위상",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[0.0, state.x],
+            y=[0.0, state.y],
+            mode="lines+markers",
+            line={"width": 6},
+            marker={"size": 9},
+            name="합성 벡터",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[0.0, state.opposite_x],
+            y=[0.0, state.opposite_y],
+            mode="lines+markers",
+            line={"width": 4, "dash": "dash"},
+            marker={"size": 8},
+            name="수학적 역벡터",
+        )
+    )
+    fig.update_layout(
+        title="정10각형 위상 가중치와 합성 벡터",
+        xaxis={"scaleanchor": "y", "scaleratio": 1, "zeroline": True},
+        yaxis={"zeroline": True},
+        height=610,
+        margin={"l": 20, "r": 20, "t": 55, "b": 20},
+        legend={"orientation": "h"},
+    )
+    return fig
+
+
+def projection_figure(points3d: np.ndarray, edges: Sequence[Tuple[int, int]], rotation_deg: float) -> go.Figure:
+    pts = project_xy(points3d, rotation_deg)
+    ex: List[float] = []
+    ey: List[float] = []
+    for i, j in edges:
+        ex.extend([float(pts[i, 0]), float(pts[j, 0]), None])
+        ey.extend([float(pts[i, 1]), float(pts[j, 1]), None])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=ex, y=ey, mode="lines", hoverinfo="skip", name="투영 모서리"))
+    fig.add_trace(
+        go.Scatter(
+            x=pts[:, 0], y=pts[:, 1], mode="markers", marker={"size": 8},
+            text=[f"v{i}" for i in range(len(pts))],
+            hovertemplate="%{text}<br>(%{x:.5f}, %{y:.5f})<extra></extra>",
+            name="투영 꼭짓점",
+        )
+    )
+    fig.update_layout(
+        title=f"Z축 회전 {rotation_deg:.1f}° 후 XY 정사영",
+        xaxis={"scaleanchor": "y", "scaleratio": 1},
+        height=600,
+        margin={"l": 20, "r": 20, "t": 55, "b": 20},
+        showlegend=False,
+    )
+    return fig
+
+
+# -----------------------------------------------------------------------------
+# 위상 네트워크 분석
+# -----------------------------------------------------------------------------
+def adjacency_list(vertex_count: int, edges: Sequence[Tuple[int, int]]) -> List[List[int]]:
+    adj = [[] for _ in range(vertex_count)]
+    for i, j in edges:
+        adj[i].append(j)
+        adj[j].append(i)
+    return [sorted(v) for v in adj]
+
+
+def shortest_path_distances(start: int, adjacency: Sequence[Sequence[int]]) -> List[int]:
+    distances = [-1] * len(adjacency)
+    distances[start] = 0
+    queue = [start]
+    for current in queue:
+        for nxt in adjacency[current]:
+            if distances[nxt] == -1:
+                distances[nxt] = distances[current] + 1
+                queue.append(nxt)
+    return distances
+
+
+def antipodal_vertex(points: np.ndarray, index: int) -> int:
+    target = -points[index]
+    return int(np.argmin(np.linalg.norm(points - target, axis=1)))
+
+
+# -----------------------------------------------------------------------------
+# 연구 후보 CSV
+# -----------------------------------------------------------------------------
+def poly_candidate_template() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "candidate_id": "CAND-001",
+                "candidate_name": "연구 후보 A",
+                "theta_deg": 0.0,
+                "magnitude": 1.0,
+                "evidence_level": "미검증 가설",
+                "notes": "실제 약재·혈위·치료 지시가 아닌 사용자 정의 후보",
+            },
+            {
+                "candidate_id": "CAND-002",
+                "candidate_name": "연구 후보 B",
+                "theta_deg": 180.0,
+                "magnitude": 1.0,
+                "evidence_level": "미검증 가설",
+                "notes": "벡터 정합도 시험용",
+            },
+        ]
+    )
+
+
+def validate_candidate_df(df: pd.DataFrame) -> pd.DataFrame:
+    required = ["candidate_id", "candidate_name", "theta_deg", "magnitude", "evidence_level", "notes"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"CSV 필수 열 누락: {', '.join(missing)}")
+
+    out = df[required].copy()
+    out["theta_deg"] = pd.to_numeric(out["theta_deg"], errors="coerce")
+    out["magnitude"] = pd.to_numeric(out["magnitude"], errors="coerce")
+    out = out.dropna(subset=["theta_deg", "magnitude"])
+    out["theta_deg"] = out["theta_deg"] % 360.0
+    out["magnitude"] = out["magnitude"].clip(lower=0.0)
+    return out
+
+
+def rank_candidates(df: pd.DataFrame, target_x: float, target_y: float) -> pd.DataFrame:
+    target = np.array([target_x, target_y], dtype=float)
+    rows = []
+    for _, row in df.iterrows():
+        theta = math.radians(float(row["theta_deg"]))
+        magnitude = float(row["magnitude"])
+        vector = magnitude * np.array([math.cos(theta), math.sin(theta)])
+        residual = float(np.linalg.norm(target - vector))
+        dot = float(np.dot(target, vector))
+        target_norm = float(np.linalg.norm(target))
+        vector_norm = float(np.linalg.norm(vector))
+        cosine = dot / (target_norm * vector_norm) if target_norm > 1e-12 and vector_norm > 1e-12 else 0.0
+        rows.append(
+            {
+                **row.to_dict(),
+                "vector_x": vector[0],
+                "vector_y": vector[1],
+                "cosine_alignment": cosine,
+                "residual_distance": residual,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["residual_distance", "cosine_alignment"], ascending=[True, False])
+
+
+# -----------------------------------------------------------------------------
+# 리포트 생성
+# -----------------------------------------------------------------------------
+def poly_research_report(
+    case_id: str,
+    notes: str,
+    weights: Sequence[float],
+    state: PolyVectorState,
+    solid_summary: pd.DataFrame,
+) -> Dict[str, object]:
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "case_id": case_id,
+        "scope": "education_and_research_only",
+        "safety_statement": (
+            "This output is a geometric research record, not a diagnosis, prescription, "
+            "acupuncture/moxibustion instruction, dosage recommendation, or proof of clinical efficacy."
+        ),
+        "input_notes": notes,
+        "ten_phase_weights": [float(v) for v in weights],
+        "ten_phase_labels": [
+            {"stem": TEN_STEM_NAMES[i], "phase": TEN_STEM_PHASES[i], "yin_yang": TEN_STEM_YINYANG[i]}
+            for i in range(10)
+        ],
+        "vector_state": asdict(state),
+        "solid_topology": solid_summary.to_dict(orient="records"),
+    }
+
+# -----------------------------------------------------------------------------
 # 입력: 환자 입력이 아니라 구조 분석 대상 입력
 # -----------------------------------------------------------------------------
 st.sidebar.header("구조 분석 설정")
@@ -1250,6 +1784,26 @@ custom_nodes = [item.strip() for item in custom_node_text.replace("\n", ",").spl
 extra_axes = st.sidebar.multiselect("추가 6축 태그", AXIS_NAMES, default=[])
 selected_axes = list(dict.fromkeys(record["6축 태그"] + extra_axes))
 selected_state = formula_state(selected_axes)
+
+st.sidebar.divider()
+st.sidebar.subheader("다면체·위상 연구 설정")
+case_id = st.sidebar.text_input("사례/실험 ID", value="CASE-001")
+phase_offset = st.sidebar.slider("정10각형 시작 위상(°)", 0.0, 360.0, 90.0, 1.0)
+projection_rotation = st.sidebar.slider("3D 투영 전 Z축 회전(°)", 0.0, 360.0, 0.0, 1.0)
+
+poly_solids = build_polyhedral_solids()
+poly_solid_summary = pd.DataFrame(
+    [
+        {
+            "다면체": name,
+            "V 꼭짓점": len(data["vertices"]),
+            "E 모서리": len(data["edges"]),
+            "F 면": int(data["faces"]),
+            "오일러 V-E+F": len(data["vertices"]) - len(data["edges"]) + int(data["faces"]),
+        }
+        for name, data in poly_solids.items()
+    ]
+)
 
 st.sidebar.divider()
 st.sidebar.markdown(
@@ -1269,7 +1823,11 @@ st.title("🧭 한의학 기하학 구조 보조도구")
 st.caption("처방·약재·경혈·경락·오행·육경 자료를 노드·모서리·축·다면체·상태공간으로 배치하고 비교하는 연구/교육용 구조 도구")
 st.info("기하학적 배속은 한의학 자료를 정리하기 위한 형식 모델입니다. 고전의 직접 문장, 생물학적 인과 또는 자동 처방 판정을 뜻하지 않습니다.")
 
-home_tab, phase_tab, stem_tab, q6_tab, network_tab, meridian_tab, solid_tab, audit_tab = st.tabs(
+(
+    home_tab, phase_tab, stem_tab, q6_tab, network_tab, meridian_tab,
+    solid_tab, audit_tab, poly3d_tab, vector_tab, meridian3d_tab,
+    candidate_tab, report_tab, protocol_tab,
+) = st.tabs(
     [
         "1. 한의학 구조 홈",
         "2. 오행 정오각형",
@@ -1279,6 +1837,12 @@ home_tab, phase_tab, stem_tab, q6_tab, network_tab, meridian_tab, solid_tab, aud
         "6. 361경혈·14경맥",
         "7. 플라토닉 구조",
         "8. 정확 기호 검증",
+        "9. 3D 다면체·정사영",
+        "10. 십간 위상 벡터",
+        "11. 12경맥 정20면체",
+        "12. 후보 벡터 비교",
+        "13. 연구 기록",
+        "14. 검증 설계",
     ]
 )
 
@@ -1496,7 +2060,7 @@ with audit_tab:
             )
 
     export_record = {
-        "tool": "한의학 기하학 구조 보조도구 v3.0",
+        "tool": "한의학 기하학 구조 보조도구 v4.0 통합판",
         "formula_record": record,
         "selected_axes": selected_axes,
         "custom_nodes": custom_nodes,
@@ -1512,5 +2076,225 @@ with audit_tab:
         mime="application/json",
     )
 
+
+
+with poly3d_tab:
+    st.header("정20면체·정12면체·정이십십이면체·마름모30면체")
+    st.caption("추가 파일의 다면체 생성·쌍대 계산·XY 정사영 기능을 통합했습니다.")
+
+    solid_name_3d = st.selectbox("3D 분석 다면체", list(poly_solids.keys()), index=0, key="poly_solid_name")
+    poly_data = poly_solids[solid_name_3d]
+    poly_points = np.asarray(poly_data["vertices"], dtype=float)
+    poly_edges = list(poly_data["edges"])
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("꼭짓점 V", len(poly_points))
+    c2.metric("모서리 E", len(poly_edges))
+    c3.metric("면 F", int(poly_data["faces"]))
+    c4.metric("V-E+F", len(poly_points) - len(poly_edges) + int(poly_data["faces"]))
+
+    left, right = st.columns(2)
+    with left:
+        labels_3d = MERIDIAN_LABELS_12 if solid_name_3d == "정20면체" else None
+        st.plotly_chart(polyhedron_figure(solid_name_3d, poly_points, poly_edges, labels_3d), use_container_width=True)
+    with right:
+        st.plotly_chart(projection_figure(poly_points, poly_edges, projection_rotation), use_container_width=True)
+
+    coord_df = pd.DataFrame(poly_points, columns=["x", "y", "z"])
+    coord_df.insert(0, "vertex", [f"v{i}" for i in range(len(poly_points))])
+    st.download_button(
+        "현재 다면체 좌표 CSV 다운로드",
+        coord_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"{solid_name_3d}_vertices.csv",
+        mime="text/csv",
+        key="poly_coord_download",
+    )
+    st.warning("12경맥 라벨은 정20면체 12꼭짓점에 붙인 사용자 정의 연구 배속입니다. 해부학적 표준 배치를 뜻하지 않습니다.")
+
+
+with vector_tab:
+    st.header("십간 정10각형 위상·합성 벡터·역벡터")
+    st.markdown("십간 10개 위상에 연구자가 정한 가중치를 입력하여 합성 벡터를 계산합니다. 결과는 구조 좌표이며 치료 방향이 아닙니다.")
+
+    poly_weights: List[float] = []
+    weight_cols = st.columns(5)
+    for i in range(10):
+        with weight_cols[i % 5]:
+            poly_weights.append(
+                st.slider(
+                    f"{TEN_STEM_NAMES[i]} · {TEN_STEM_PHASES[i]}({TEN_STEM_YINYANG[i]})",
+                    min_value=-5.0,
+                    max_value=5.0,
+                    value=float(st.session_state.get(f"poly_phase_weight_{i}", 0.0)),
+                    step=0.1,
+                    key=f"poly_phase_weight_{i}",
+                )
+            )
+
+    poly_state = phase_vector(poly_weights, phase_offset)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("합성 반경 r", f"{poly_state.radius:.6f}")
+    c2.metric("위상 θ", f"{poly_state.theta_deg:.2f}°")
+    c3.metric("기하 중심성", f"{poly_state.balance_index:.2f}/100")
+    c4.metric("역위상", f"{poly_state.opposite_theta_deg:.2f}°")
+
+    st.plotly_chart(decagon_vector_figure(poly_weights, poly_state, phase_offset), use_container_width=True)
+    nearest = poly_state.nearest_phase_index
+    opposite = poly_state.opposite_phase_index
+    show_df(
+        [
+            {"항목": "합성 벡터", "값": f"({poly_state.x:.8f}, {poly_state.y:.8f})"},
+            {"항목": "수학적 역벡터", "값": f"({poly_state.opposite_x:.8f}, {poly_state.opposite_y:.8f})"},
+            {"항목": "가장 가까운 십간 위상", "값": f"{TEN_STEM_NAMES[nearest]} · {TEN_STEM_PHASES[nearest]}({TEN_STEM_YINYANG[nearest]})"},
+            {"항목": "반대편 십간 위상", "값": f"{TEN_STEM_NAMES[opposite]} · {TEN_STEM_PHASES[opposite]}({TEN_STEM_YINYANG[opposite]})"},
+        ]
+    )
+    st.warning("기하 중심성은 원점과의 상대 거리일 뿐 건강·질병·효과 점수가 아닙니다.")
+
+
+with meridian3d_tab:
+    st.header("정20면체 12노드와 12경맥의 상징적 네트워크")
+    ico_points = np.asarray(poly_solids["정20면체"]["vertices"], dtype=float)
+    ico_edges = list(poly_solids["정20면체"]["edges"])
+    ico_adjacency = adjacency_list(len(ico_points), ico_edges)
+
+    selected_node_3d = st.selectbox(
+        "연구상 선택 노드",
+        range(12),
+        format_func=lambda i: f"v{i} · {MERIDIAN_LABELS_12[i]}",
+        key="selected_meridian_3d",
+    )
+    graph_distances = shortest_path_distances(selected_node_3d, ico_adjacency)
+    antipode = antipodal_vertex(ico_points, selected_node_3d)
+
+    network3d_df = pd.DataFrame(
+        [
+            {
+                "vertex": f"v{i}",
+                "상징 경맥 라벨": MERIDIAN_LABELS_12[i],
+                "좌표": tuple(np.round(ico_points[i], 8)),
+                "인접 노드": ", ".join(f"v{j}" for j in ico_adjacency[i]),
+                "선택 노드에서 그래프 거리": graph_distances[i],
+                "기하학적 대척점": "예" if i == antipode else "",
+            }
+            for i in range(12)
+        ]
+    )
+
+    left, right = st.columns([1.25, 1])
+    with left:
+        st.plotly_chart(polyhedron_figure("정20면체 12경맥 라벨망", ico_points, ico_edges, MERIDIAN_LABELS_12), use_container_width=True)
+    with right:
+        st.metric("선택 노드", f"v{selected_node_3d}")
+        st.metric("상징 경맥", MERIDIAN_LABELS_12[selected_node_3d])
+        st.metric("기하학적 대척 노드", f"v{antipode} · {MERIDIAN_LABELS_12[antipode]}")
+        st.info("인접·거리·대척은 다면체 그래프 계산입니다. 취혈·보사·시술 위치를 뜻하지 않습니다.")
+    show_df(network3d_df, height=430)
+
+
+with candidate_tab:
+    st.header("사용자 정의 한의학 후보 벡터 비교")
+    st.markdown("외부에서 정의한 약재·경혈·처방·병기 후보의 좌표를 CSV로 넣어 **기하학적 정합도만** 비교합니다.")
+
+    template_df = poly_candidate_template()
+    st.download_button(
+        "후보 CSV 템플릿 다운로드",
+        template_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="candidate_vector_template.csv",
+        mime="text/csv",
+        key="candidate_template_download",
+    )
+    uploaded_candidates = st.file_uploader("후보 벡터 CSV", type=["csv"], key="candidate_csv")
+    candidate_df = template_df
+    if uploaded_candidates is not None:
+        try:
+            candidate_df = validate_candidate_df(pd.read_csv(uploaded_candidates))
+            st.success(f"후보 {len(candidate_df)}개를 불러왔습니다.")
+        except Exception as exc:
+            st.error(str(exc))
+            candidate_df = template_df
+
+    current_poly_weights = [float(st.session_state.get(f"poly_phase_weight_{i}", 0.0)) for i in range(10)]
+    current_poly_state = phase_vector(current_poly_weights, phase_offset)
+    ranked_candidates = rank_candidates(candidate_df, current_poly_state.opposite_x, current_poly_state.opposite_y)
+    st.dataframe(ranked_candidates, use_container_width=True, hide_index=True)
+    st.warning("정렬 순서는 치료·처방 우선순위가 아니라 입력 좌표와 역벡터 사이의 기하학적 거리 순서입니다.")
+
+
+with report_tab:
+    st.header("통합 연구 기록 내보내기")
+    report_notes = st.text_area(
+        "관찰 메모",
+        placeholder="좌표 정의, 자료 출처, 가중치 규칙, 전처리, 제외 기준 등을 기록하세요.",
+        height=180,
+        key="poly_report_notes",
+    )
+    current_poly_weights = [float(st.session_state.get(f"poly_phase_weight_{i}", 0.0)) for i in range(10)]
+    current_poly_state = phase_vector(current_poly_weights, phase_offset)
+    report = poly_research_report(case_id, report_notes, current_poly_weights, current_poly_state, poly_solid_summary)
+    report["tcm_structure"] = {
+        "analysis_target": formula_name,
+        "selected_axes": selected_axes,
+        "q6_state": selected_state,
+        "q6_bits_little_endian": state_bits_little_endian(selected_state),
+        "h34_code": state_to_codon(selected_state),
+        "custom_nodes": custom_nodes,
+    }
+    report_json = json.dumps(report, ensure_ascii=False, indent=2)
+    st.json(report)
+    st.download_button(
+        "통합 연구 기록 JSON 다운로드",
+        report_json.encode("utf-8"),
+        file_name=f"{case_id}_tcm_geometry_report.json",
+        mime="application/json",
+        key="integrated_report_download",
+    )
+
+    report_row = pd.DataFrame(
+        [
+            {
+                "case_id": case_id,
+                "analysis_target": formula_name,
+                "q6_state": selected_state,
+                "x": current_poly_state.x,
+                "y": current_poly_state.y,
+                "r": current_poly_state.radius,
+                "theta_deg": current_poly_state.theta_deg,
+                "opposite_x": current_poly_state.opposite_x,
+                "opposite_y": current_poly_state.opposite_y,
+                "opposite_theta_deg": current_poly_state.opposite_theta_deg,
+                "geometric_centrality": current_poly_state.balance_index,
+                **{f"weight_{TEN_STEM_NAMES[i]}": current_poly_weights[i] for i in range(10)},
+            }
+        ]
+    )
+    st.download_button(
+        "통합 분석 행 CSV 다운로드",
+        report_row.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"{case_id}_tcm_geometry_row.csv",
+        mime="text/csv",
+        key="integrated_row_download",
+    )
+
+
+with protocol_tab:
+    st.header("기하학–한의학 대응을 검증하기 위한 연구 설계")
+    st.markdown("정확한 기하학과 한의학적 대응 가설을 구분하여 기록하고, 임상적 해석이 필요할 때는 별도 검증 절차를 사용합니다.")
+    protocol_rows = [
+        {"단계": "1. 조작적 정의", "필수 내용": "한의학 자료를 좌표·노드·축·가중치로 변환하는 규칙을 사전 고정", "실패 위험": "사후 좌표 조정과 순환논증"},
+        {"단계": "2. 기하 검증", "필수 내용": "좌표·인접성·대칭·투영·황금비 관계를 기호식과 조합론으로 검증", "실패 위험": "그림이 비슷하다는 인상만으로 동일성 주장"},
+        {"단계": "3. 측정 신뢰도", "필수 내용": "동일 자료 반복 부호화와 평가자 간 일치도 확인", "실패 위험": "입력 부호가 달라져 결과 재현 불가"},
+        {"단계": "4. 대조 모델", "필수 내용": "단순 그래프·무작위 배속·기존 분류와 비교", "실패 위험": "복잡한 다면체 모델의 추가 가치 불명"},
+        {"단계": "5. 외부 검증", "필수 내용": "다른 자료·기관·연구자에서 동일 규칙 재현", "실패 위험": "단일 사례 과적합"},
+        {"단계": "6. 임상 접점", "필수 내용": "임상 결론을 내릴 경우 별도 윤리심의·안전성·통계 검증", "실패 위험": "기하 정합도를 치료효과로 오인"},
+    ]
+    show_df(protocol_rows)
+    st.subheader("수학 검증 상태")
+    show_df(poly_exact_symbolic_checks())
+    st.subheader("확장 다면체 위상")
+    show_df(poly_solid_summary)
+    st.info("기호적으로 참인 다면체·정다각형 관계와 한의학적 배속 가설은 서로 다른 증명 층입니다.")
+
+
 st.divider()
-st.caption("한의학용 기하학 보조도구: 한의학 자료를 구조화·배치·비교·검증합니다. 진단·처방·용량·침구 시술을 자동 결정하지 않습니다.")
+st.caption("한의학용 기하학 보조도구 v4.0: 한의학 자료와 황금비 다면체·정사영·위상 벡터를 구조화·배치·비교·검증합니다. 진단·처방·용량·침구 시술을 자동 결정하지 않습니다.")
