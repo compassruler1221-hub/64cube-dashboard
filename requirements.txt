@@ -1,6 +1,6 @@
-streamlit>=1.35
-pandas>=2.0
-plotly>=5.20
-sympy>=1.12
-numpy>=1.26
-scipy>=1.11
+streamlit>=1.35,<2.0
+pandas>=2.0,<3.0
+plotly>=5.20,<7.0
+sympy>=1.12,<2.0
+numpy>=1.26,<3.0
+scipy>=1.11,<2.0
