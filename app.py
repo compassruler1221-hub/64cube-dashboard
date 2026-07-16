@@ -1,945 +1,1543 @@
-"""
-황금비 다면체 × 한의학 연구 대시보드
-======================================
-실행:
-    pip install -r requirements.txt
-    streamlit run app.py
-
-용도:
-- 황금비, 정10각형, 정20면체·정12면체·마름모30면체의 수학적 구조를 계산·시각화
-- 12경맥·십간·오행 등과의 대응을 '상징적 연구 가설'로 기록하고 비교
-- 환자별 임상 자료를 자동 진단하거나 처방·침구·뜸 지시로 변환하지 않음
-
-중요:
-수학적으로 정확한 다면체 관계가 임상 효과나 생리학적 인과관계를 입증하지는 않습니다.
-이 앱의 임상 연결부는 검증 전 연구 가설 및 설명 모델입니다.
-"""
+# app.py
+# 한의사용 처방·침구·뜸 보조 대시보드 v100-GoldenRatio + 상한론·Q6 한의학 연구자 해설·텐세그리티·플라토닉 환론·황금비 기하학 엔진
+# 실행: streamlit run app.py
+# 목적: 교육·연구·임상 설명 보조. 자동 진단/처방/침구 시술 지시가 아닙니다.
 
 from __future__ import annotations
-
-import io
-import json
-import math
-from dataclasses import asdict, dataclass
-from datetime import datetime
-from typing import Dict, Iterable, List, Sequence, Tuple
-
-import numpy as np
+import re
+from typing import Any, Dict, List, Optional
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-import sympy as sp
-from scipy.spatial import ConvexHull
-
-
-# -----------------------------------------------------------------------------
-# 페이지 / 스타일
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="황금비 다면체 × 한의학 연구 엔진",
-    page_icon="☯️",
-    layout="wide",
-)
-
-st.markdown(
-    """
-    <style>
-    .block-container {max-width: 1480px; padding-top: 1.1rem; padding-bottom: 3rem;}
-    h1, h2, h3 {letter-spacing: -0.035em;}
-    div[data-testid="stMetricValue"] {font-size: 1.75rem;}
-    .hypothesis-box {
-        border: 1px solid rgba(128,128,128,.35);
-        border-radius: 12px;
-        padding: 1rem 1.1rem;
-        background: rgba(128,128,128,.06);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# -----------------------------------------------------------------------------
-# 상수 / 데이터 모델
-# -----------------------------------------------------------------------------
-PHI = (1.0 + math.sqrt(5.0)) / 2.0
-TAU = 2.0 * math.pi
-TEN_STEMS = ["갑", "을", "병", "정", "무", "기", "경", "신", "임", "계"]
-FIVE_PHASES = ["목", "목", "화", "화", "토", "토", "금", "금", "수", "수"]
-YIN_YANG = ["양", "음", "양", "음", "양", "음", "양", "음", "양", "음"]
-MERIDIANS_12 = [
-    "수태음폐경", "수양명대장경", "족양명위경", "족태음비경",
-    "수소음심경", "수태양소장경", "족태양방광경", "족소음신경",
-    "수궐음심포경", "수소양삼초경", "족소양담경", "족궐음간경",
-]
-
-
-@dataclass
-class VectorState:
-    x: float
-    y: float
-    radius: float
-    theta_deg: float
-    opposite_x: float
-    opposite_y: float
-    opposite_theta_deg: float
-    nearest_phase_index: int
-    opposite_phase_index: int
-    balance_index: float
-
-
-# -----------------------------------------------------------------------------
-# 기하 생성 함수
-# -----------------------------------------------------------------------------
-def unique_rows(points: Iterable[Sequence[float]], decimals: int = 12) -> np.ndarray:
-    arr = np.asarray(list(points), dtype=float)
-    return np.unique(np.round(arr, decimals=decimals), axis=0)
-
-
-def icosahedron_vertices() -> np.ndarray:
-    """정20면체 표준 좌표 12개."""
-    pts: List[Tuple[float, float, float]] = []
-    for s1 in (-1.0, 1.0):
-        for s2 in (-1.0, 1.0):
-            pts.extend(
-                [
-                    (0.0, s1, s2 * PHI),
-                    (s1, s2 * PHI, 0.0),
-                    (s2 * PHI, 0.0, s1),
-                ]
-            )
-    return unique_rows(pts)
-
-
-def dodecahedron_vertices() -> np.ndarray:
-    """정12면체 표준 좌표 20개."""
-    pts: List[Tuple[float, float, float]] = []
-    inv = 1.0 / PHI
-
-    for sx in (-1.0, 1.0):
-        for sy in (-1.0, 1.0):
-            for sz in (-1.0, 1.0):
-                pts.append((sx, sy, sz))
-
-    for s1 in (-1.0, 1.0):
-        for s2 in (-1.0, 1.0):
-            pts.extend(
-                [
-                    (0.0, s1 * inv, s2 * PHI),
-                    (s1 * inv, s2 * PHI, 0.0),
-                    (s2 * PHI, 0.0, s1 * inv),
-                ]
-            )
-    return unique_rows(pts)
-
-
-def edges_by_minimum_distance(points: np.ndarray, tolerance: float = 1e-7) -> List[Tuple[int, int]]:
-    """정다면체처럼 모든 모서리 길이가 같은 점 집합에서 최소 비영 거리로 모서리 추출."""
-    distances: List[float] = []
-    n = len(points)
-    for i in range(n):
-        for j in range(i + 1, n):
-            d = float(np.linalg.norm(points[i] - points[j]))
-            if d > tolerance:
-                distances.append(d)
-    edge_length = min(distances)
-    return [
-        (i, j)
-        for i in range(n)
-        for j in range(i + 1, n)
-        if abs(float(np.linalg.norm(points[i] - points[j])) - edge_length) <= tolerance
-    ]
-
-
-def icosidodecahedron_from_icosahedron() -> Tuple[np.ndarray, List[Tuple[int, int]]]:
-    """정20면체 모서리 중점 30개로 정이십십이면체를 구성."""
-    ico = icosahedron_vertices()
-    ico_edges = edges_by_minimum_distance(ico)
-    mids = unique_rows((ico[i] + ico[j]) / 2.0 for i, j in ico_edges)
-    return mids, edges_by_minimum_distance(mids)
-
-
-def grouped_hull_faces(points: np.ndarray, decimals: int = 8) -> List[Dict[str, object]]:
-    """ConvexHull의 삼각분할 면을 같은 평면끼리 합쳐 다각형 면으로 복원."""
-    hull = ConvexHull(points)
-    grouped: Dict[Tuple[float, ...], set[int]] = {}
-    equation_by_key: Dict[Tuple[float, ...], np.ndarray] = {}
-
-    for simplex, equation in zip(hull.simplices, hull.equations):
-        key = tuple(np.round(equation, decimals=decimals))
-        grouped.setdefault(key, set()).update(int(v) for v in simplex)
-        equation_by_key[key] = np.asarray(equation, dtype=float)
-
-    return [
-        {
-            "vertices": sorted(grouped[key]),
-            "equation": equation_by_key[key],
-        }
-        for key in grouped
-    ]
-
-
-def rhombic_triacontahedron_dual() -> Tuple[np.ndarray, List[Tuple[int, int]]]:
-    """
-    정이십십이면체의 쌍대(dual)를 계산해 마름모30면체의 32꼭짓점·60모서리를 구성.
-    좌표는 수치 시각화용이며, 위상 수(V,E,F)는 알고리즘으로 검증한다.
-    """
-    primal, _ = icosidodecahedron_from_icosahedron()
-    faces = grouped_hull_faces(primal)
-
-    dual_vertices: List[np.ndarray] = []
-    face_vertex_sets: List[set[int]] = []
-    for face in faces:
-        equation = np.asarray(face["equation"], dtype=float)
-        normal = equation[:3]
-        offset = float(equation[3])
-        if offset >= 0:
-            normal = -normal
-            offset = -offset
-        dual_vertices.append(normal / (-offset))
-        face_vertex_sets.append(set(face["vertices"]))
-
-    dual_edges: List[Tuple[int, int]] = []
-    for i in range(len(face_vertex_sets)):
-        for j in range(i + 1, len(face_vertex_sets)):
-            if len(face_vertex_sets[i].intersection(face_vertex_sets[j])) == 2:
-                dual_edges.append((i, j))
-
-    return np.asarray(dual_vertices), dual_edges
-
-
-@st.cache_data
-def build_solids() -> Dict[str, Dict[str, object]]:
-    ico = icosahedron_vertices()
-    dod = dodecahedron_vertices()
-    ido, ido_edges = icosidodecahedron_from_icosahedron()
-    rt, rt_edges = rhombic_triacontahedron_dual()
-
-    return {
-        "정20면체": {"vertices": ico, "edges": edges_by_minimum_distance(ico), "faces": 20},
-        "정12면체": {"vertices": dod, "edges": edges_by_minimum_distance(dod), "faces": 12},
-        "정이십십이면체": {"vertices": ido, "edges": ido_edges, "faces": 32},
-        "마름모30면체": {"vertices": rt, "edges": rt_edges, "faces": 30},
-    }
-
-
-# -----------------------------------------------------------------------------
-# 수학 검증 / 2D 투영
-# -----------------------------------------------------------------------------
-def exact_symbolic_checks() -> pd.DataFrame:
-    phi = (sp.Integer(1) + sp.sqrt(5)) / 2
-    k = sp.symbols("k", integer=True)
-
-    sum_cos = sp.simplify(sum(sp.cos(2 * sp.pi * i / 10) for i in range(10)))
-    sum_sin = sp.simplify(sum(sp.sin(2 * sp.pi * i / 10) for i in range(10)))
-
-    rows = [
-        {
-            "검증식": "φ² = φ + 1",
-            "기호 결과": sp.simplify(phi**2 - phi - 1),
-            "판정": "참" if sp.simplify(phi**2 - phi - 1) == 0 else "재검토",
-        },
-        {
-            "검증식": "φ⁻¹ = φ - 1",
-            "기호 결과": sp.simplify(1 / phi - (phi - 1)),
-            "판정": "참" if sp.simplify(1 / phi - (phi - 1)) == 0 else "재검토",
-        },
-        {
-            "검증식": "정10각형 Σcos(2πk/10) = 0",
-            "기호 결과": sum_cos,
-            "판정": "참" if sum_cos == 0 else "재검토",
-        },
-        {
-            "검증식": "정10각형 Σsin(2πk/10) = 0",
-            "기호 결과": sum_sin,
-            "판정": "참" if sum_sin == 0 else "재검토",
-        },
-        {
-            "검증식": "R(θ+2π) = R(θ)",
-            "기호 결과": "삼각함수 주기성",
-            "판정": "참",
-        },
-        {
-            "검증식": "D(t+10) = D(t), θ=2πt/10",
-            "기호 결과": sp.simplify(sp.exp(sp.I * 2 * sp.pi * (k + 10) / 10) - sp.exp(sp.I * 2 * sp.pi * k / 10)),
-            "판정": "참",
-        },
-    ]
-    return pd.DataFrame(rows).astype(str)
-
-
-def decagon_points(radius: float = 1.0, phase_offset_deg: float = 90.0) -> np.ndarray:
-    angles = np.deg2rad(phase_offset_deg) + np.arange(10) * TAU / 10.0
-    return np.column_stack((radius * np.cos(angles), radius * np.sin(angles)))
-
-
-def project_xy(points: np.ndarray, rotation_deg: float = 0.0) -> np.ndarray:
-    """Z축 회전 후 XY 정사영."""
-    theta = math.radians(rotation_deg)
-    rot = np.array(
-        [
-            [math.cos(theta), -math.sin(theta), 0.0],
-            [math.sin(theta), math.cos(theta), 0.0],
-            [0.0, 0.0, 1.0],
-        ]
-    )
-    rotated = points @ rot.T
-    return rotated[:, :2]
-
-
-def phase_vector(weights: Sequence[float], phase_offset_deg: float = 90.0) -> VectorState:
-    if len(weights) != 10:
-        raise ValueError("십간 가중치는 정확히 10개여야 합니다.")
-
-    pts = decagon_points(1.0, phase_offset_deg)
-    w = np.asarray(weights, dtype=float)
-    vector = (pts * w[:, None]).sum(axis=0)
-    x, y = float(vector[0]), float(vector[1])
-    radius = float(np.linalg.norm(vector))
-    theta = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0 if radius > 1e-12 else 0.0
-    opposite_theta = (theta + 180.0) % 360.0
-
-    point_angles = (np.degrees(np.arctan2(pts[:, 1], pts[:, 0])) + 360.0) % 360.0
-
-    def angular_distance(a: float, b: float) -> float:
-        return abs((a - b + 180.0) % 360.0 - 180.0)
-
-    nearest = int(np.argmin([angular_distance(theta, a) for a in point_angles]))
-    opposite = int(np.argmin([angular_distance(opposite_theta, a) for a in point_angles]))
-
-    # 0~100의 기하학적 중심성 지표. 임상 건강 점수가 아님.
-    scale = max(float(np.sum(np.abs(w))), 1.0)
-    normalized_radius = min(radius / scale, 1.0)
-    balance_index = 100.0 * (1.0 - normalized_radius)
-
-    return VectorState(
-        x=x,
-        y=y,
-        radius=radius,
-        theta_deg=theta,
-        opposite_x=-x,
-        opposite_y=-y,
-        opposite_theta_deg=opposite_theta,
-        nearest_phase_index=nearest,
-        opposite_phase_index=opposite,
-        balance_index=balance_index,
-    )
-
-
-# -----------------------------------------------------------------------------
-# 그래프 / 시각화
-# -----------------------------------------------------------------------------
-def edge_traces_3d(points: np.ndarray, edges: Sequence[Tuple[int, int]]) -> Tuple[List[float], List[float], List[float]]:
-    x: List[float] = []
-    y: List[float] = []
-    z: List[float] = []
-    for i, j in edges:
-        x.extend([float(points[i, 0]), float(points[j, 0]), None])
-        y.extend([float(points[i, 1]), float(points[j, 1]), None])
-        z.extend([float(points[i, 2]), float(points[j, 2]), None])
-    return x, y, z
-
-
-def polyhedron_figure(name: str, points: np.ndarray, edges: Sequence[Tuple[int, int]], labels: Sequence[str] | None = None) -> go.Figure:
-    ex, ey, ez = edge_traces_3d(points, edges)
-    hover = labels if labels is not None and len(labels) == len(points) else [f"v{i}" for i in range(len(points))]
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter3d(
-            x=ex,
-            y=ey,
-            z=ez,
-            mode="lines",
-            line={"width": 3},
-            hoverinfo="skip",
-            name="모서리",
-        )
-    )
-    fig.add_trace(
-        go.Scatter3d(
-            x=points[:, 0],
-            y=points[:, 1],
-            z=points[:, 2],
-            mode="markers+text" if labels else "markers",
-            text=labels,
-            textposition="top center",
-            marker={"size": 5},
-            hovertext=hover,
-            hovertemplate="%{hovertext}<br>(%{x:.4f}, %{y:.4f}, %{z:.4f})<extra></extra>",
-            name="꼭짓점",
-        )
-    )
-    fig.update_layout(
-        title=name,
-        height=640,
-        margin={"l": 0, "r": 0, "t": 45, "b": 0},
-        scene={
-            "aspectmode": "data",
-            "xaxis_title": "X",
-            "yaxis_title": "Y",
-            "zaxis_title": "Z",
-        },
-        showlegend=False,
-    )
-    return fig
-
-
-def decagon_vector_figure(weights: Sequence[float], state: VectorState, phase_offset_deg: float = 90.0) -> go.Figure:
-    pts = decagon_points(1.0, phase_offset_deg)
-    closed = np.vstack([pts, pts[0]])
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=closed[:, 0], y=closed[:, 1], mode="lines", name="정10각형",
-            hoverinfo="skip",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=pts[:, 0],
-            y=pts[:, 1],
-            mode="markers+text",
-            text=[f"{TEN_STEMS[i]}({FIVE_PHASES[i]}·{YIN_YANG[i]})" for i in range(10)],
-            textposition="top center",
-            marker={"size": [8 + 2 * abs(float(v)) for v in weights]},
-            customdata=np.asarray(weights),
-            hovertemplate="%{text}<br>가중치=%{customdata:.2f}<extra></extra>",
-            name="십간 위상",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[0.0, state.x],
-            y=[0.0, state.y],
-            mode="lines+markers",
-            line={"width": 6},
-            marker={"size": 9},
-            name="합성 벡터",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[0.0, state.opposite_x],
-            y=[0.0, state.opposite_y],
-            mode="lines+markers",
-            line={"width": 4, "dash": "dash"},
-            marker={"size": 8},
-            name="수학적 역벡터",
-        )
-    )
-    fig.update_layout(
-        title="정10각형 위상 가중치와 합성 벡터",
-        xaxis={"scaleanchor": "y", "scaleratio": 1, "zeroline": True},
-        yaxis={"zeroline": True},
-        height=610,
-        margin={"l": 20, "r": 20, "t": 55, "b": 20},
-        legend={"orientation": "h"},
-    )
-    return fig
-
-
-def projection_figure(points3d: np.ndarray, edges: Sequence[Tuple[int, int]], rotation_deg: float) -> go.Figure:
-    pts = project_xy(points3d, rotation_deg)
-    ex: List[float] = []
-    ey: List[float] = []
-    for i, j in edges:
-        ex.extend([float(pts[i, 0]), float(pts[j, 0]), None])
-        ey.extend([float(pts[i, 1]), float(pts[j, 1]), None])
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=ex, y=ey, mode="lines", hoverinfo="skip", name="투영 모서리"))
-    fig.add_trace(
-        go.Scatter(
-            x=pts[:, 0], y=pts[:, 1], mode="markers", marker={"size": 8},
-            text=[f"v{i}" for i in range(len(pts))],
-            hovertemplate="%{text}<br>(%{x:.5f}, %{y:.5f})<extra></extra>",
-            name="투영 꼭짓점",
-        )
-    )
-    fig.update_layout(
-        title=f"Z축 회전 {rotation_deg:.1f}° 후 XY 정사영",
-        xaxis={"scaleanchor": "y", "scaleratio": 1},
-        height=600,
-        margin={"l": 20, "r": 20, "t": 55, "b": 20},
-        showlegend=False,
-    )
-    return fig
-
-
-# -----------------------------------------------------------------------------
-# 위상 네트워크 분석
-# -----------------------------------------------------------------------------
-def adjacency_list(vertex_count: int, edges: Sequence[Tuple[int, int]]) -> List[List[int]]:
-    adj = [[] for _ in range(vertex_count)]
-    for i, j in edges:
-        adj[i].append(j)
-        adj[j].append(i)
-    return [sorted(v) for v in adj]
-
-
-def shortest_path_distances(start: int, adjacency: Sequence[Sequence[int]]) -> List[int]:
-    distances = [-1] * len(adjacency)
-    distances[start] = 0
-    queue = [start]
-    for current in queue:
-        for nxt in adjacency[current]:
-            if distances[nxt] == -1:
-                distances[nxt] = distances[current] + 1
-                queue.append(nxt)
-    return distances
-
-
-def antipodal_vertex(points: np.ndarray, index: int) -> int:
-    target = -points[index]
-    return int(np.argmin(np.linalg.norm(points - target, axis=1)))
-
-
-# -----------------------------------------------------------------------------
-# 연구 후보 CSV
-# -----------------------------------------------------------------------------
-def candidate_template() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "candidate_id": "CAND-001",
-                "candidate_name": "연구 후보 A",
-                "theta_deg": 0.0,
-                "magnitude": 1.0,
-                "evidence_level": "미검증 가설",
-                "notes": "실제 약재·혈위·치료 지시가 아닌 사용자 정의 후보",
-            },
-            {
-                "candidate_id": "CAND-002",
-                "candidate_name": "연구 후보 B",
-                "theta_deg": 180.0,
-                "magnitude": 1.0,
-                "evidence_level": "미검증 가설",
-                "notes": "벡터 정합도 시험용",
-            },
-        ]
-    )
-
-
-def validate_candidate_df(df: pd.DataFrame) -> pd.DataFrame:
-    required = ["candidate_id", "candidate_name", "theta_deg", "magnitude", "evidence_level", "notes"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"CSV 필수 열 누락: {', '.join(missing)}")
-
-    out = df[required].copy()
-    out["theta_deg"] = pd.to_numeric(out["theta_deg"], errors="coerce")
-    out["magnitude"] = pd.to_numeric(out["magnitude"], errors="coerce")
-    out = out.dropna(subset=["theta_deg", "magnitude"])
-    out["theta_deg"] = out["theta_deg"] % 360.0
-    out["magnitude"] = out["magnitude"].clip(lower=0.0)
-    return out
-
-
-def rank_candidates(df: pd.DataFrame, target_x: float, target_y: float) -> pd.DataFrame:
-    target = np.array([target_x, target_y], dtype=float)
+import streamlit.components.v1 as components
+
+st.set_page_config(page_title="한의사용 처방·침구·뜸 보조 대시보드", page_icon="🟣", layout="wide")
+st.markdown("""
+<style>
+.block-container{max-width:1400px;padding-top:1.2rem;padding-bottom:2rem}
+h1,h2,h3{letter-spacing:-0.04em}
+div[data-testid="stMetricValue"]{font-size:1.8rem}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------- 공통 안전 함수 ----------------
+def clean_cell(v: Any) -> str:
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    s = str(v)
+    return "" if s.strip().lower() in {"none", "nan", "null"} else s
+
+def clean_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    return [{k: clean_cell(v) for k, v in r.items()} for r in rows]
+
+def df_from(rows: List[Dict[str, Any]]) -> pd.DataFrame:
+    return pd.DataFrame(clean_rows(rows))
+
+def show_df(rows_or_df: Any, height: Optional[int] = None) -> None:
+    if isinstance(rows_or_df, pd.DataFrame):
+        df = rows_or_df.copy()
+        for c in df.columns:
+            df[c] = df[c].map(clean_cell)
+    else:
+        df = df_from(rows_or_df)
+    if df.empty:
+        st.caption("표시할 항목이 없습니다.")
+        return
+    kwargs = {"use_container_width": True, "hide_index": True}
+    if isinstance(height, int) and height > 0:
+        kwargs["height"] = height
+    st.dataframe(df, **kwargs)
+
+def show_small(rows: List[Dict[str, Any]]) -> None:
+    df = df_from(rows)
+    if df.empty:
+        st.caption("표시할 항목이 없습니다.")
+    else:
+        st.table(df)
+
+def box(kind: str, text: str) -> None:
+    {"info": st.info, "warn": st.warning, "error": st.error, "success": st.success}.get(kind, st.info)(text)
+
+def has_any(text: str, words: List[str]) -> bool:
+    text = clean_cell(text)
+    return any(w in text for w in words)
+
+# ---------------- 연구자용 Q6/H(3,4) ----------------
+BASE_TO_BITS = {"G": "00", "A": "10", "U": "01", "C": "11"}
+BITS_TO_BASE = {v: k for k, v in BASE_TO_BITS.items()}
+GENETIC_CODE = {
+"UUU":"Phe","UUC":"Phe","UUA":"Leu","UUG":"Leu","UCU":"Ser","UCC":"Ser","UCA":"Ser","UCG":"Ser",
+"UAU":"Tyr","UAC":"Tyr","UAA":"Stop","UAG":"Stop","UGU":"Cys","UGC":"Cys","UGA":"Stop","UGG":"Trp",
+"CUU":"Leu","CUC":"Leu","CUA":"Leu","CUG":"Leu","CCU":"Pro","CCC":"Pro","CCA":"Pro","CCG":"Pro",
+"CAU":"His","CAC":"His","CAA":"Gln","CAG":"Gln","CGU":"Arg","CGC":"Arg","CGA":"Arg","CGG":"Arg",
+"AUU":"Ile","AUC":"Ile","AUA":"Ile","AUG":"Met","ACU":"Thr","ACC":"Thr","ACA":"Thr","ACG":"Thr",
+"AAU":"Asn","AAC":"Asn","AAA":"Lys","AAG":"Lys","AGU":"Ser","AGC":"Ser","AGA":"Arg","AGG":"Arg",
+"GUU":"Val","GUC":"Val","GUA":"Val","GUG":"Val","GCU":"Ala","GCC":"Ala","GCA":"Ala","GCG":"Ala",
+"GAU":"Asp","GAC":"Asp","GAA":"Glu","GAG":"Glu","GGU":"Gly","GGC":"Gly","GGA":"Gly","GGG":"Gly"}
+
+def n_to_hyo_bits(n: int) -> str:
+    return "".join(str((n >> i) & 1) for i in range(6))
+
+def n_to_codon(n: int) -> str:
+    bits = n_to_hyo_bits(n)
+    return "".join(BITS_TO_BASE[bits[i:i+2]] for i in range(0, 6, 2))
+
+def codon_to_n(codon: str) -> int:
+    bits = "".join(BASE_TO_BITS[b] for b in codon.upper())
+    return sum(int(bits[i]) << i for i in range(6))
+
+def q6_neighbors(n: int) -> List[int]:
+    return [n ^ (1 << i) for i in range(6)]
+
+# ---------------- 처방 DB ----------------
+FORMULAS: Dict[str, Dict[str, Any]] = {
+"육미지황환": {
+"분류":"보음·자음 처방","전통 변증":"간신음허, 허열도한, 정혈 부족, 하초 허약",
+"처방 방향":"자음, 보신, 허열 완충, 수렴·안정","구성 약재":["숙지황","산수유","산약","복령","택사","목단피"],
+"잘 맞는 환자상":"요슬산연, 도한, 오심번열, 구건, 만성 피로, 음허성 열감",
+"주의 환자상":"설사, 식체, 더부룩함, 소화력 저하, 몸이 무겁고 습담이 뚜렷한 경우",
+"감별 처방":"십전대보탕, 팔미지황환, 보중익기탕, 소요산",
+"가감 방향":"허열이 뚜렷하면 청허열 방향, 소화력이 약하면 보비·화습 방향 보조 검토",
+"핵심 혈위":["KI3","BL23","BL18","SP6","CV4","CV6","KI6"],"처방 방향축":["보충축","수렴·안정축","완충·조화축"],
+"뜸 가능 조건":"하복부 냉감, 하초 허한, 요슬 냉통이 분명하고 열감·도한이 약할 때 제한 검토",
+"뜸 주의 조건":"도한, 오심번열, 구건, 오후 열감, 붉은 혀, 열성 피부질환이 있으면 강한 뜸 주의",
+"권장 강도":"약~중. 허열이 동반되면 보류 또는 매우 약하게 검토",
+"환자용 핵심":"몸 아래쪽의 허약감, 마른 열감, 도한, 입마름 같은 상태를 보완하는 방향에서 검토됩니다."},
+"팔진탕": {
+"분류":"기혈쌍보 처방","전통 변증":"기혈양허, 만성피로, 안색창백, 어지럼, 식욕저하",
+"처방 방향":"보기, 보혈, 기혈쌍보, 균형 보강","구성 약재":["인삼","백출","복령","감초","숙지황","당귀","천궁","작약"],
+"잘 맞는 환자상":"피로, 안색창백, 어지럼, 식욕저하, 회복력 저하","주의 환자상":"습담·식체가 강하거나 복부팽만이 심한 경우",
+"감별 처방":"십전대보탕, 보중익기탕, 귀비탕","가감 방향":"식체가 있으면 소화 보조 방향, 허열이 있으면 보혈·자음 강도 조절",
+"핵심 혈위":["ST36","SP6","BL20","BL17","CV6","CV12"],"처방 방향축":["보충축","완충·조화축"],
+"뜸 가능 조건":"기허·양허·냉감이 분명하고 염증성 열감이 없을 때 제한 검토","뜸 주의 조건":"열감, 염증, 상열감, 흉민이 뚜렷하면 강한 뜸 주의","권장 강도":"약~중",
+"환자용 핵심":"기운과 혈의 부족으로 피로와 어지럼, 식욕저하가 동반될 때 검토됩니다."},
+"십전대보탕": {
+"분류":"대보원기·기혈쌍보 처방","전통 변증":"기혈양허, 허로, 허한, 수술·질병 후 회복 저하",
+"처방 방향":"대보원기, 기혈쌍보, 온보","구성 약재":["인삼","백출","복령","감초","숙지황","당귀","천궁","작약","황기","육계"],
+"잘 맞는 환자상":"허약, 피로, 추위 탐, 회복 지연, 안색 저하","주의 환자상":"상열감, 실열, 염증, 고혈압 조절 불량, 복부팽만이 강한 경우",
+"감별 처방":"팔진탕, 보중익기탕, 귀비탕","가감 방향":"상열감이 있으면 온보 강도를 낮추고 식체가 있으면 소화 보조",
+"핵심 혈위":["ST36","CV6","BL20","BL23","GV4","SP6"],"처방 방향축":["보충축","승양·상승축"],
+"뜸 가능 조건":"허한·냉감·기력저하가 분명할 때 제한 검토","뜸 주의 조건":"고혈압 조절 불량, 상열감, 얼굴 홍조, 염증성 열감이 있으면 주의","권장 강도":"약~중",
+"환자용 핵심":"기운과 혈을 함께 보강하고 몸을 따뜻하게 하는 방향의 처방입니다."},
+"보중익기탕": {
+"분류":"보기·승양 처방","전통 변증":"비위기허, 중기하함, 기허발열, 만성피로",
+"처방 방향":"보기, 승양, 중기 보강, 비위 회복","구성 약재":["황기","인삼","백출","감초","당귀","진피","승마","시호"],
+"잘 맞는 환자상":"피로, 무력, 식욕저하, 처짐, 기단, 자한","주의 환자상":"상열감, 불면, 심계, 실열, 혈압 조절 불량, 흉민이 뚜렷한 경우",
+"감별 처방":"팔진탕, 십전대보탕, 귀비탕","가감 방향":"상열감이 강하면 승양·온보 강도를 낮추고 소화불량이 강하면 보비·화습 보조",
+"핵심 혈위":["ST36","CV6","GV20","BL20","SP3","CV12"],"처방 방향축":["보충축","승양·상승축","소통·전환축"],
+"뜸 가능 조건":"기허·냉감·하함이 뚜렷하고 상열감이 약할 때 제한 검토","뜸 주의 조건":"상열감, 불면, 심계, 고혈압 조절 불량, 구건이 뚜렷하면 강한 뜸 주의","권장 강도":"약. 상열감이 있으면 보류 검토",
+"환자용 핵심":"떨어진 기운을 올리고 비위 기능을 보강하는 방향에서 검토됩니다."},
+"산조인탕": {
+"분류":"양혈안신 처방","전통 변증":"허번불면, 혈허, 음허 내열, 심간 불안",
+"처방 방향":"수렴, 안신, 내부 안정, 허열 완충","구성 약재":["산조인","복령","지모","천궁","감초"],
+"잘 맞는 환자상":"잠을 깊이 못 잠, 심계, 불안, 건망, 피로, 허번","주의 환자상":"과도한 졸림, 진정제·수면제 병용, 운전·기계 조작 예정",
+"감별 처방":"귀비탕, 천왕보심단, 가미소요산","가감 방향":"실열성 불면이면 청열 방향, 담음이 강하면 화담 방향 보조 검토",
+"핵심 혈위":["HT7","PC6","SP6","KI6","BL15","Anmian"],"처방 방향축":["수렴·안정축","완충·조화축"],
+"뜸 가능 조건":"허한·냉감이 분명하고 불면이 허한성일 때 제한 검토","뜸 주의 조건":"도한, 오심번열, 심번, 열감이 뚜렷하면 뜸보다 안신·청허열 방향 확인","권장 강도":"보류~약",
+"환자용 핵심":"긴장과 불안을 가라앉히고 수면을 안정시키는 방향에서 검토됩니다."},
+"귀비탕": {
+"분류":"심비양허·기혈보강 처방","전통 변증":"심비양허, 불면, 건망, 심계, 식욕저하, 피로",
+"처방 방향":"보기, 보혈, 안신, 심비 보강","구성 약재":["인삼","황기","백출","복령","용안육","산조인","목향","감초","당귀","원지"],
+"잘 맞는 환자상":"불면, 건망, 심계, 피로, 식욕저하, 안색창백","주의 환자상":"습담·식체가 강하거나 상열감이 뚜렷한 경우",
+"감별 처방":"산조인탕, 보중익기탕, 팔진탕","가감 방향":"불면 중심이면 안신 방향, 식체가 있으면 소화 보조",
+"핵심 혈위":["HT7","SP6","ST36","BL20","BL15","PC6"],"처방 방향축":["보충축","수렴·안정축"],
+"뜸 가능 조건":"심비양허와 냉감·기허가 분명할 때 제한 검토","뜸 주의 조건":"상열감, 심번, 구건, 불면 악화가 있으면 강한 뜸 주의","권장 강도":"약",
+"환자용 핵심":"피로와 불면, 심계가 함께 있을 때 심비를 보강하고 안정시키는 방향입니다."},
+"사물탕": {
+"분류":"보혈조혈 처방","전통 변증":"혈허, 어지럼, 안색창백, 월경량 감소, 건조",
+"처방 방향":"보혈, 조혈, 혈분 완충","구성 약재":["숙지황","당귀","천궁","작약"],
+"잘 맞는 환자상":"혈허, 어지럼, 안색창백, 건조, 월경 관련 허증","주의 환자상":"습담·식체, 설사, 복부팽만이 강한 경우",
+"감별 처방":"팔진탕, 귀비탕, 온경탕","가감 방향":"기허가 동반되면 보기 방향, 어혈이 있으면 활혈 방향 보조",
+"핵심 혈위":["SP6","BL17","BL20","ST36","LR3"],"처방 방향축":["보충축","완충·조화축"],
+"뜸 가능 조건":"혈허와 냉감이 함께 있을 때 제한 검토","뜸 주의 조건":"열감·도한·상열감이 강하면 보류 검토","권장 강도":"보류~약",
+"환자용 핵심":"혈의 부족과 관련된 어지럼, 건조, 안색 저하를 보완하는 방향입니다."},
+"소요산": {
+"분류":"소간해울·건비조혈 처방","전통 변증":"간울, 혈허, 비허, 스트레스성 소화불량, 흉협불편",
+"처방 방향":"소간, 해울, 건비, 조화","구성 약재":["시호","당귀","작약","백출","복령","감초","생강","박하"],
+"잘 맞는 환자상":"스트레스성 흉협불편, 답답함, 식욕저하, 월경 전후 불편","주의 환자상":"심한 허한, 설사, 체력 저하가 뚜렷한 경우",
+"감별 처방":"가미소요산, 이진탕, 평위산","가감 방향":"허열이 있으면 청열 방향, 소화력이 약하면 보비 방향 보조",
+"핵심 혈위":["LR3","PC6","SP6","ST36","GB34"],"처방 방향축":["소통·전환축","완충·조화축"],
+"뜸 가능 조건":"복부 냉감·비허가 동반될 때 제한 검토","뜸 주의 조건":"상열감, 흉민, 두통, 염증성 열감이 강하면 강한 뜸 주의","권장 강도":"보류~약",
+"환자용 핵심":"스트레스와 소화, 긴장성 불편이 함께 있을 때 기혈 흐름을 조화시키는 방향입니다."},
+"이진탕": {
+"분류":"화담이기 처방","전통 변증":"담음정체, 오심구토, 어지럼, 흉민, 습담",
+"처방 방향":"조습, 화담, 이기, 위기 하강","구성 약재":["반하","진피","복령","감초","생강","오매"],
+"잘 맞는 환자상":"가래, 오심, 더부룩함, 어지럼, 흉민, 습담","주의 환자상":"음허건조, 진액 부족, 강한 구건이 동반된 경우",
+"감별 처방":"평위산, 소요산, 반하백출천마탕","가감 방향":"열담이면 청열화담, 허증이 강하면 보비 방향 보조",
+"핵심 혈위":["ST40","PC6","CV12","ST36","SP9"],"처방 방향축":["배출·이수축","소통·전환축"],
+"뜸 가능 조건":"냉담·비위허한이 뚜렷할 때 제한 검토","뜸 주의 조건":"열담, 구건, 인후건조, 음허가 뚜렷하면 강한 뜸 주의","권장 강도":"보류~약",
+"환자용 핵심":"가래, 메스꺼움, 더부룩함처럼 습담이 막힌 상태를 풀어주는 방향입니다."},
+"평위산": {
+"분류":"조습화위 처방","전통 변증":"비위습탁, 식체, 복부팽만, 더부룩함",
+"처방 방향":"조습, 행기, 소도, 비위 소통","구성 약재":["창출","후박","진피","감초","생강","대조"],
+"잘 맞는 환자상":"복부팽만, 더부룩함, 식체, 습담, 식욕저하","주의 환자상":"음허건조, 진액 부족, 강한 구건·건조감",
+"감별 처방":"이진탕, 보중익기탕, 소요산","가감 방향":"허증이 강하면 보비 방향, 열이 있으면 청열 방향 보조",
+"핵심 혈위":["CV12","ST36","SP9","ST25","PC6"],"처방 방향축":["소통·전환축","배출·이수축"],
+"뜸 가능 조건":"비위허한·복부 냉감이 동반될 때 제한 검토","뜸 주의 조건":"열감, 구건, 음허 건조가 분명하면 강한 뜸 주의","권장 강도":"약",
+"환자용 핵심":"비위에 습이 쌓이고 더부룩한 상태를 풀어주는 방향입니다."},
+"오령산": {
+"분류":"이수삼습 처방","전통 변증":"수습정체, 소변불리, 부종, 갈증·구토, 수분대사 장애",
+"처방 방향":"이수, 삼습, 수분대사 조절, 기화 보조","구성 약재":["택사","저령","복령","백출","계지"],
+"잘 맞는 환자상":"소변불리, 부종, 몸이 무거움, 갈증, 구토, 수분 정체","주의 환자상":"탈수, 전해질 이상, 신장 기능 저하, 이뇨제 병용",
+"감별 처방":"이진탕, 평위산, 진무탕","가감 방향":"허한이 뚜렷하면 온양화기 방향, 열이 있으면 청열이수 방향 검토",
+"핵심 혈위":["SP9","CV9","BL22","KI7","ST36"],"처방 방향축":["배출·이수축","소통·전환축"],
+"뜸 가능 조건":"수습정체와 냉감·양허가 동반될 때 제한 검토","뜸 주의 조건":"탈수, 열감, 신장 기능 저하, 임신 가능성, 피부질환이 있으면 주의","권장 강도":"보류~약",
+"환자용 핵심":"몸의 수분 정체와 소변 문제를 조절하는 방향입니다."},
+"반하사심탕": {
+"분류":"신개고강·한열조화 처방","전통 변증":"심하비, 한열착잡, 비위불화, 위기상역, 구역",
+"처방 방향":"중초 조화, 신개고강, 한열 조절, 위기상역 완화, 비위 승강 회복","구성 약재":["반하","황금","황련","건강","인삼","감초","대조"],
+"잘 맞는 환자상":"명치 아래가 그득하지만 아프지 않음, 구역, 더부룩함, 복명, 설사 또는 묽은 변, 상부 열감과 중초 허한이 섞인 경우",
+"주의 환자상":"심하부가 단단하고 아픈 결흉 양상, 격심한 복통, 고열 지속, 탈수, 혈변, 급성 복증 의심",
+"감별 처방":"소시호탕, 소함흉탕, 대함흉탕, 이진탕, 평위산",
+"가감 방향":"구역이 강하면 위기상역 완화, 설사가 강하면 중초 허한과 탈수 확인, 열감이 강하면 청열 강도 조절",
+"핵심 혈위":["CV12","PC6","ST36","SP4","ST25","CV13"],"처방 방향축":["소통·전환축","완충·조화축"],
+"뜸 가능 조건":"명치 냉감·비위허한·묽은 변이 뚜렷하고 실열·복통이 강하지 않을 때 제한 검토",
+"뜸 주의 조건":"심하부 통증·단단함, 고열, 실열, 급성 복증, 탈수, 임신 가능성이 있으면 강한 뜸 금지",
+"권장 강도":"보류~약",
+"환자용 핵심":"명치 아래가 막힌 듯 그득하고 구역·더부룩함이 있으며 한열이 섞인 비위 불화를 조화시키는 방향입니다."},
+"소시호탕": {
+"분류":"화해소양 처방","전통 변증":"소양병, 왕래한열, 흉협고만, 구고, 인건, 목현, 심번희구",
+"처방 방향":"화해소양, 간담 소통, 흉협 조화, 위기상역 완화","구성 약재":["시호","황금","반하","인삼","감초","생강","대조"],
+"잘 맞는 환자상":"왕래한열, 흉협부 답답함, 입이 쓰고 목이 마름, 구역, 식욕저하, 맥현",
+"주의 환자상":"심하부가 그득하지만 아프지 않은 심하비, 심하부가 단단하고 아픈 결흉, 실열 고열, 강한 설사",
+"감별 처방":"반하사심탕, 대시호탕, 소함흉탕, 가미소요산",
+"가감 방향":"흉협 긴장이 강하면 소통 방향, 구역이 강하면 반하·위기하강 방향, 허증이 강하면 보기 강도 확인",
+"핵심 혈위":["GB34","TE5","PC6","LR3","CV12","BL18"],"처방 방향축":["소통·전환축","완충·조화축"],
+"뜸 가능 조건":"허한이 동반되고 상열·실열이 약할 때 제한 검토","뜸 주의 조건":"왕래한열·상열감·구고·염증성 열감이 뚜렷하면 강한 뜸 주의","권장 강도":"보류~약",
+"환자용 핵심":"몸의 반표반리 경계에서 열감과 오한, 흉협 답답함이 오가는 소양 불화를 조화시키는 방향입니다."},
+"대시호탕": {
+"분류":"소양양명 합병·공하겸화 처방","전통 변증":"흉협고만, 심하급, 변비, 구역, 실열·실증 경향",
+"처방 방향":"소양 화해, 양명 실체 해소, 흉협·심하부 긴장 완화","구성 약재":["시호","황금","반하","작약","지실","대황","생강","대조"],
+"잘 맞는 환자상":"흉협과 명치가 답답하고 단단함, 변비, 구역, 체격·실증 경향, 복부 긴장",
+"주의 환자상":"허약자, 설사, 탈수, 임신 가능성, 고령자, 항응고제 복용",
+"감별 처방":"소시호탕, 반하사심탕, 대함흉탕, 평위산",
+"가감 방향":"변비와 실증이 강하면 공하 방향 확인, 허약하면 강도 낮춤",
+"핵심 혈위":["GB34","LR3","PC6","ST25","ST36","CV12"],"처방 방향축":["소통·전환축","배출·이수축"],
+"뜸 가능 조건":"보통 보류. 냉감이 분명하고 실열이 약할 때만 제한 검토","뜸 주의 조건":"실열·복부 긴장·변비·염증성 소견이 강하면 뜸보다 소통·사하 방향 확인","권장 강도":"보류",
+"환자용 핵심":"흉협과 명치의 막힘, 변비, 구역이 함께 나타나는 실증성 소양·양명 불화를 풀어주는 방향입니다."},
+"소함흉탕": {
+"분류":"청열화담·개결 처방","전통 변증":"소결흉, 담열결흉, 심하비만, 흉민, 명치 답답함",
+"처방 방향":"청열화담, 흉격 개결, 심하부 막힘 완화","구성 약재":["황련","반하","과루실"],
+"잘 맞는 환자상":"가슴·명치가 답답하고 담열·흉민이 있으며 심하부가 막힌 듯한 경우",
+"주의 환자상":"격심한 흉통·복통, 심혈관 응급 의심, 고열 지속, 허한성 설사",
+"감별 처방":"반하사심탕, 대함흉탕, 이진탕, 황련해독탕",
+"가감 방향":"담열이 강하면 청열화담, 허한이 섞이면 강도 조절",
+"핵심 혈위":["CV17","CV12","PC6","ST40","ST36"],"처방 방향축":["소통·전환축","완충·조화축"],
+"뜸 가능 조건":"대체로 보류. 냉담·허한이 분명할 때만 약하게 검토","뜸 주의 조건":"흉통·심계·고열·담열이 강하면 강한 뜸 금지","권장 강도":"보류",
+"환자용 핵심":"가슴과 명치에 담열이 막혀 답답한 상태를 풀어주는 방향입니다."},
+"대함흉탕": {
+"분류":"준하축수·결흉 처방","전통 변증":"결흉, 심하부 단단함과 통증, 수열결흉, 실증 급성 복증",
+"처방 방향":"결흉 해소, 수열 제거, 강한 사하·축수 방향","구성 약재":["대황","망초","감수"],
+"잘 맞는 환자상":"명치 아래가 단단하고 아프며 복부 긴장과 실증 양상이 분명한 경우",
+"주의 환자상":"허약자, 고령자, 임신 가능성, 탈수, 설사, 신장 기능 저하, 복통 원인 불명",
+"감별 처방":"반하사심탕, 소함흉탕, 대시호탕",
+"가감 방향":"이 처방은 강한 처방이므로 실제 사용은 전문 판단 및 응급 감별 우선",
+"핵심 혈위":["CV12","CV17","PC6","ST25","ST36"],"처방 방향축":["배출·이수축","소통·전환축"],
+"뜸 가능 조건":"대체로 보류","뜸 주의 조건":"급성 복증·실열·통증이 있으면 뜸보다 의학적 평가 우선","권장 강도":"보류",
+"환자용 핵심":"명치 아래가 단단하고 아픈 결흉 양상에서 감별되는 강한 사하 방향 처방으로, 실제 적용은 매우 신중해야 합니다."},
+"황련해독탕": {
+"분류":"청열해독 처방","전통 변증":"삼초실열, 번조, 상열, 염증성 열감, 출혈 경향",
+"처방 방향":"청열, 해독, 실열 완화, 화열 진정","구성 약재":["황련","황금","황백","치자"],
+"잘 맞는 환자상":"얼굴 붉음, 심번, 불면, 갈증, 열감, 염증성 소견, 실열 경향",
+"주의 환자상":"허한, 설사, 위장 허약, 냉감, 저혈압·허약자",
+"감별 처방":"백호탕, 소시호탕, 가미소요산, 천왕보심단",
+"가감 방향":"허열이면 자음·청허열 방향, 실열이면 청열해독 중심",
+"핵심 혈위":["LI11","LI4","ST44","GV14","PC6"],"처방 방향축":["배출·이수축","완충·조화축"],
+"뜸 가능 조건":"대체로 보류","뜸 주의 조건":"실열·염증성 열감이 강하면 뜸 금지","권장 강도":"보류",
+"환자용 핵심":"강한 열감과 번조, 염증성 소견을 식히는 방향의 처방입니다."},
+"백호가인삼탕": {
+"분류":"청기분열·익기생진 처방","전통 변증":"양명기분열, 대열, 대한, 대갈, 맥홍대, 진액 손상",
+"처방 방향":"청열, 생진, 기분열 완화, 갈증 조절","구성 약재":["석고","지모","인삼","감초","갱미"],
+"잘 맞는 환자상":"고열성 열감, 갈증, 땀, 입마름, 피로, 진액 소모",
+"주의 환자상":"허한, 설사, 냉감, 위장 허약, 탈수와 전해질 문제",
+"감별 처방":"황련해독탕, 죽엽석고탕, 소시호탕",
+"가감 방향":"진액 손상이 강하면 생진 방향, 실열이 강하면 청열 중심",
+"핵심 혈위":["LI11","ST44","ST36","SP6","CV12"],"처방 방향축":["완충·조화축","보충축"],
+"뜸 가능 조건":"대체로 보류","뜸 주의 조건":"고열·강한 열감·갈증이 있으면 강한 뜸 금지","권장 강도":"보류",
+"환자용 핵심":"강한 열과 갈증, 진액 소모가 있을 때 열을 식히고 진액 회복을 돕는 방향입니다."},
+"계지탕": {
+"분류":"해기조영위 처방","전통 변증":"태양중풍, 표허, 자한, 오풍, 영위불화",
+"처방 방향":"해표, 조화영위, 표허 완충","구성 약재":["계지","작약","생강","대조","감초"],
+"잘 맞는 환자상":"땀이 나며 바람을 싫어함, 몸살, 가벼운 외감, 허약한 표증",
+"주의 환자상":"무한·실증·고열, 인후통 심함, 염증성 열감, 자한이 아닌 경우",
+"감별 처방":"마황탕, 갈근탕, 소시호탕",
+"가감 방향":"무한이면 마황탕 감별, 경항강이면 갈근탕 감별",
+"핵심 혈위":["LU7","LI4","BL13","ST36","CV17"],"처방 방향축":["소통·전환축","완충·조화축"],
+"뜸 가능 조건":"오풍·냉감·표허가 분명하고 열이 강하지 않을 때 약하게","뜸 주의 조건":"고열·염증성 열감·인후통이 강하면 뜸 주의","권장 강도":"약",
+"환자용 핵심":"땀이 나고 바람을 싫어하는 표허성 외감에서 영위 균형을 조화시키는 방향입니다."},
+"마황탕": {
+"분류":"발한해표·선폐평천 처방","전통 변증":"태양상한, 무한, 오한, 신통, 맥부긴, 해수·천식",
+"처방 방향":"발한, 해표, 선폐, 한사 발산","구성 약재":["마황","계지","행인","감초"],
+"잘 맞는 환자상":"오한, 몸살, 땀 없음, 표실, 기침·천명, 맥긴",
+"주의 환자상":"고혈압, 심계, 불면, 허약자, 자한, 임신 가능성, 심혈관 위험",
+"감별 처방":"계지탕, 갈근탕, 소청룡탕",
+"가감 방향":"기침·천명이 강하면 선폐 방향, 고혈압·심계 있으면 강도 신중",
+"핵심 혈위":["LU7","LI4","BL13","GV14","LU9"],"처방 방향축":["소통·전환축","승양·상승축"],
+"뜸 가능 조건":"한사·냉감이 분명하고 고열·심계가 없을 때 제한 검토","뜸 주의 조건":"고열·심계·고혈압·불면이 있으면 강자극 주의","권장 강도":"보류~약",
+"환자용 핵심":"땀이 나지 않는 차가운 외감과 몸살·기침이 있을 때 표를 열어 발산시키는 방향입니다."},
+"갈근탕": {
+"분류":"해표해기·서근 처방","전통 변증":"태양병, 항배강, 무한 또는 표증, 경항부 긴장",
+"처방 방향":"해표, 경항부 긴장 완화, 근육 이완, 표증 조절","구성 약재":["갈근","마황","계지","작약","생강","대조","감초"],
+"잘 맞는 환자상":"목·어깨가 뻣뻣함, 몸살, 오한, 두통, 표증",
+"주의 환자상":"고혈압·심계·불면, 강한 열감, 허약자, 자한",
+"감별 처방":"계지탕, 마황탕, 소시호탕",
+"가감 방향":"경항강 중심이면 갈근 방향, 무한·표실이면 마황탕 감별",
+"핵심 혈위":["GB20","BL10","LI4","LU7","ST36"],"처방 방향축":["소통·전환축","승양·상승축"],
+"뜸 가능 조건":"냉감·오한이 있고 열감이 강하지 않을 때 약하게","뜸 주의 조건":"고혈압·심계·상열·염증성 열감 주의","권장 강도":"보류~약",
+"환자용 핵심":"목과 어깨의 뻣뻣함을 동반한 외감성 몸살에서 표를 풀고 근육 긴장을 완화하는 방향입니다."},
+"팔미지황환": {
+"분류":"온보신양·보신 처방","전통 변증":"신양허, 하초 냉감, 요슬냉통, 소변빈삭, 부종 경향",
+"처방 방향":"보신, 온양, 하초 냉감 완충, 기화 보조","구성 약재":["숙지황","산수유","산약","복령","택사","목단피","계지","부자"],
+"잘 맞는 환자상":"허리·무릎 냉통, 하복부 냉감, 야뇨, 소변빈삭, 추위 탐, 기력 저하",
+"주의 환자상":"오심번열, 도한, 구건, 상열감, 고혈압 조절 불량, 염증성 열감",
+"감별 처방":"육미지황환, 진무탕, 십전대보탕",
+"가감 방향":"허열이 뚜렷하면 육미지황환 방향, 냉감이 뚜렷하면 온보 강도 조절",
+"핵심 혈위":["KI3","BL23","GV4","CV4","CV6","KI7"],"처방 방향축":["보충축","승양·상승축"],
+"뜸 가능 조건":"하초 허한·냉감·요슬냉통이 뚜렷할 때 제한 검토","뜸 주의 조건":"상열감·도한·구건·고혈압 경향이면 강한 뜸 주의","권장 강도":"약~중",
+"환자용 핵심":"하초가 차고 신양이 약한 방향에서 따뜻하게 보강하는 처방입니다."},
+"온경탕": {
+"분류":"온경산한·양혈조경 처방","전통 변증":"충임허한, 혈허·어혈, 월경불순, 하복부 냉감, 손발 번열 혼재",
+"처방 방향":"온경, 양혈, 산한, 어혈 완충, 충임 조절","구성 약재":["오수유","당귀","천궁","작약","인삼","계지","아교","목단피","생강","감초","반하","맥문동"],
+"잘 맞는 환자상":"하복부 냉감, 월경불순, 피로, 혈허, 건조, 손발 번열 혼재",
+"주의 환자상":"실열, 염증성 출혈, 임신 가능성, 과다출혈, 복통 심함",
+"감별 처방":"사물탕, 팔미지황환, 가미소요산",
+"가감 방향":"냉감이 강하면 온경, 혈허가 강하면 보혈, 어혈이 강하면 활혈 방향 확인",
+"핵심 혈위":["SP6","CV4","CV6","ST36","BL17","LR3"],"처방 방향축":["보충축","완충·조화축"],
+"뜸 가능 조건":"하복부 냉감·허한이 분명하고 실열이 없을 때 제한 검토","뜸 주의 조건":"임신 가능성, 과다출혈, 염증성 열감 확인","권장 강도":"약~중",
+"환자용 핵심":"하복부 냉감과 혈허·월경 불균형이 섞인 상태에서 경맥을 따뜻하게 조화시키는 방향입니다."},
+"천왕보심단": {
+"분류":"자음양혈·안신 처방","전통 변증":"심신불교, 음허혈소, 심계, 불면, 건망, 구건",
+"처방 방향":"자음, 양혈, 안신, 심신 교통, 허열 완충","구성 약재":["생지황","인삼","현삼","단삼","복령","원지","길경","오미자","당귀","천문동","맥문동","백자인","산조인"],
+"잘 맞는 환자상":"불면, 심계, 건망, 입마름, 허열, 불안, 집중 저하",
+"주의 환자상":"소화력 저하, 설사, 습담, 과도한 졸림, 진정제 병용",
+"감별 처방":"산조인탕, 귀비탕, 황련해독탕",
+"가감 방향":"허열이 강하면 청허열, 비위가 약하면 소화 부담 확인",
+"핵심 혈위":["HT7","PC6","KI6","SP6","BL15","CV14"],"처방 방향축":["수렴·안정축","보충축","완충·조화축"],
+"뜸 가능 조건":"대체로 보류. 허한이 뚜렷할 때만 약하게","뜸 주의 조건":"허열·구건·불면이 뚜렷하면 강한 뜸 주의","권장 강도":"보류~약",
+"환자용 핵심":"심신이 안정되지 않고 음혈이 부족한 불면·심계·건망을 안정시키는 방향입니다."},
+"가미소요산": {
+"분류":"소간해울·청열조혈 처방","전통 변증":"간울혈허, 울열, 월경 전 불편, 상열감, 짜증",
+"처방 방향":"소간, 해울, 청열, 건비, 혈분 조화","구성 약재":["시호","당귀","작약","백출","복령","감초","생강","박하","목단피","치자"],
+"잘 맞는 환자상":"스트레스성 흉협불편, 짜증, 상열감, 월경 전 유방창통, 식욕저하",
+"주의 환자상":"허한·설사·냉감이 강한 경우, 위장 허약",
+"감별 처방":"소요산, 황련해독탕, 천왕보심단",
+"가감 방향":"열감이 강하면 청열, 비위허가 강하면 보비·화습 보조",
+"핵심 혈위":["LR3","PC6","SP6","GB34","LI11","ST36"],"처방 방향축":["소통·전환축","완충·조화축"],
+"뜸 가능 조건":"대체로 보류. 비위허한이 분명할 때만 약하게","뜸 주의 조건":"상열감·짜증·두통·염증성 열감이 있으면 강한 뜸 주의","권장 강도":"보류~약",
+"환자용 핵심":"스트레스성 울체와 상열감이 함께 있을 때 간울을 풀고 열감을 조절하는 방향입니다."},
+"반하백출천마탕": {
+"분류":"화담식풍·건비 처방","전통 변증":"풍담상요, 어지럼, 두중, 담음, 비위허약",
+"처방 방향":"화담, 식풍, 건비, 어지럼 완충","구성 약재":["반하","백출","천마","진피","복령","감초","생강","대조"],
+"잘 맞는 환자상":"머리 무거움, 어지럼, 가래, 더부룩함, 메스꺼움, 비위허약",
+"주의 환자상":"음허건조, 강한 구건, 고혈압성 두통·신경학적 증상 의심",
+"감별 처방":"이진탕, 오령산, 갈근탕",
+"가감 방향":"담음이 강하면 화담, 비허가 강하면 건비, 두통·마비 등은 의학적 평가",
+"핵심 혈위":["ST40","GB20","PC6","CV12","ST36","SP9"],"처방 방향축":["배출·이수축","소통·전환축"],
+"뜸 가능 조건":"냉담·비위허한이 뚜렷할 때 약하게","뜸 주의 조건":"열담·구건·고혈압성 두통·신경학적 이상 확인","권장 강도":"보류~약",
+"환자용 핵심":"담음과 비위허약이 어지럼과 머리무거움을 만드는 상태를 풀어주는 방향입니다."},
+"진무탕": {
+"분류":"온양이수 처방","전통 변증":"양허수범, 부종, 어지럼, 복통, 설사, 소변불리",
+"처방 방향":"온양, 이수, 수습 조절, 하초·비신 보조","구성 약재":["부자","복령","작약","백출","생강"],
+"잘 맞는 환자상":"냉감, 무력, 설사, 부종, 소변불리, 어지럼, 하초 허한",
+"주의 환자상":"실열, 구건, 고혈압 조절 불량, 신장 기능 저하, 임신 가능성, 부자 사용 안전성",
+"감별 처방":"오령산, 팔미지황환, 십전대보탕",
+"가감 방향":"냉감과 양허가 뚜렷할 때만 온양, 수분정체·신장 기능 확인",
+"핵심 혈위":["KI7","CV4","CV6","SP9","BL23","ST36"],"처방 방향축":["보충축","배출·이수축"],
+"뜸 가능 조건":"양허·냉감·수습정체가 분명할 때 제한 검토","뜸 주의 조건":"실열·구건·고혈압·신장 기능 저하 확인","권장 강도":"약",
+"환자용 핵심":"몸이 차고 수분이 정체되며 설사·부종이 있는 양허성 상태를 따뜻하게 조절하는 방향입니다."},
+"소건중탕": {
+"분류":"온중보허·완급지통 처방","전통 변증":"중초허한, 복통, 허로, 피로, 식욕저하",
+"처방 방향":"온중, 보허, 완급, 비위 안정","구성 약재":["계지","작약","생강","대조","감초","교이"],
+"잘 맞는 환자상":"복부가 허하고 은근히 아픔, 피로, 식욕저하, 냉감, 허약",
+"주의 환자상":"실열, 복부팽만·식체, 당뇨 조절 불량, 급성 복통",
+"감별 처방":"대건중탕, 보중익기탕, 평위산",
+"가감 방향":"허한이면 온중, 식체가 강하면 평위산 감별",
+"핵심 혈위":["CV12","ST36","SP6","CV6","BL20"],"처방 방향축":["보충축","완충·조화축"],
+"뜸 가능 조건":"중초 냉감·허한이 뚜렷할 때 약~중","뜸 주의 조건":"실열·복부 염증·급성 복통 확인","권장 강도":"약~중",
+"환자용 핵심":"중초가 허하고 차서 복부 불편과 피로가 생기는 상태를 따뜻하게 완충하는 방향입니다."},
+"대건중탕": {
+"분류":"온중산한·강역지통 처방","전통 변증":"중초한성 복통, 복부 냉감, 장관운동 저하, 허한성 통증",
+"처방 방향":"온중, 산한, 강역, 복부 긴장 완화","구성 약재":["촉초","건강","인삼","교이"],
+"잘 맞는 환자상":"배가 차고 통증, 복부 팽만, 허한성 장운동 저하, 냉감",
+"주의 환자상":"실열성 복통, 급성 복증, 장폐색 의심, 출혈, 고열",
+"감별 처방":"소건중탕, 진무탕, 평위산",
+"가감 방향":"급성 복증은 의학적 평가 우선, 허한이 분명할 때 온중 방향",
+"핵심 혈위":["CV12","ST36","CV6","ST25","SP6"],"처방 방향축":["보충축","소통·전환축"],
+"뜸 가능 조건":"복부 냉감·허한이 분명할 때 제한 검토","뜸 주의 조건":"급성 복통·고열·복막자극·장폐색 의심 시 금지","권장 강도":"약~중",
+"환자용 핵심":"복부가 차고 허한성 통증·팽만이 있을 때 중초를 따뜻하게 풀어주는 방향입니다."},
+"향사평위산": {
+"분류":"행기화습·조중 처방","전통 변증":"비위습탁, 기체, 식체, 복부팽만, 트림",
+"처방 방향":"행기, 화습, 조중, 비위 소통","구성 약재":["창출","후박","진피","감초","향부자","사인","생강","대조"],
+"잘 맞는 환자상":"식후 더부룩함, 트림, 복부팽만, 기체, 습탁, 식욕저하",
+"주의 환자상":"음허건조, 강한 구건, 열감, 설사·탈수",
+"감별 처방":"평위산, 이진탕, 반하사심탕",
+"가감 방향":"기체가 강하면 행기, 습담이 강하면 화습, 구역·심하비는 반하사심탕 감별",
+"핵심 혈위":["CV12","ST36","PC6","ST25","SP9"],"처방 방향축":["소통·전환축","배출·이수축"],
+"뜸 가능 조건":"비위허한·냉감이 있을 때 약하게","뜸 주의 조건":"열감·구건·음허 건조가 뚜렷하면 강한 뜸 주의","권장 강도":"약",
+"환자용 핵심":"비위에 습이 쌓이고 기가 막혀 더부룩하고 트림이 잦은 상태를 풀어주는 방향입니다."},
+"곽향정기산": {
+"분류":"화습해표·이기화중 처방","전통 변증":"외감풍한과 내상습체, 오심구토, 설사, 복부불편",
+"처방 방향":"화습, 해표, 이기, 중초 조화","구성 약재":["곽향","자소엽","백지","대복피","복령","백출","진피","반하","후박","길경","감초","생강","대조"],
+"잘 맞는 환자상":"더부룩함, 오심, 설사, 몸무거움, 외감과 식체가 함께 있는 경우",
+"주의 환자상":"고열, 탈수, 혈변, 심한 복통, 임신 가능성, 감염성 설사 의심",
+"감별 처방":"평위산, 이진탕, 반하사심탕",
+"가감 방향":"외감이 강하면 해표, 습체가 강하면 화습, 탈수·고열은 의학적 평가",
+"핵심 혈위":["CV12","ST36","PC6","LI4","ST25"],"처방 방향축":["소통·전환축","배출·이수축"],
+"뜸 가능 조건":"냉감·비위허한이 있고 고열·탈수가 없을 때 약하게","뜸 주의 조건":"고열·감염성 설사·탈수·심한 복통이면 뜸 금지","권장 강도":"보류~약",
+"환자용 핵심":"외감과 습체가 겹쳐 메스꺼움·설사·더부룩함이 나타날 때 중초를 조화시키는 방향입니다."}
+
+}
+
+COMPARE_ROWS = [{"처방": k, "분류": v["분류"], "전통 변증": v["전통 변증"], "핵심 방향": v["처방 방향"], "잘 맞는 환자상": v["잘 맞는 환자상"], "주의 환자상": v["주의 환자상"]} for k, v in FORMULAS.items()]
+
+# ---------------- 361 경혈 생성 ----------------
+MERIDIANS = {
+"LU":(11,"수태음폐경","상지·흉부","보충축, 소통·전환축","폐기·호흡·표증 방향 참고","흉부 깊은 자침 주의"),
+"LI":(20,"수양명대장경","상지·면부","소통·전환축","표열·면구·장부 소통 방향 참고","임신 중 강자극 주의"),
+"ST":(45,"족양명위경","두면·흉복·하지","보충축, 소통·전환축","비위·소화·기혈 생성 방향 참고","복부·흉부 자침 깊이 확인"),
+"SP":(21,"족태음비경","하지·복부","보충축, 수렴·안정축","비·간·신 조절, 혈·음·수습 조절 방향 참고","임신 가능성 확인"),
+"HT":(9,"수소음심경","상지","수렴·안정축","심계·불면·안신 방향 참고","과도한 자극 주의"),
+"SI":(19,"수태양소장경","상지·견갑·두면","소통·전환축","경항·견갑·표증 방향 참고","경부 자침 주의"),
+"BL":(67,"족태양방광경","두항·배부·하지","보충축, 소통·전환축","배수혈·요배부·장부 반응점 방향 참고","흉배부 깊은 자침 주의"),
+"KI":(27,"족소음신경","하지·흉복","보충축, 수렴·안정축","신·음혈·하초·수면 방향 참고","임신·허약자 자극 강도 확인"),
+"PC":(9,"수궐음심포경","상지·흉부","수렴·안정축, 소통·전환축","심흉·오심·정서 긴장 방향 참고","강자극 주의"),
+"TE":(23,"수소양삼초경","상지·두면","소통·전환축","소양·수도·상중하초 소통 방향 참고","두경부 자극 확인"),
+"GB":(44,"족소양담경","두면·체측·하지","소통·전환축","간담·측부·긴장·통증 방향 참고","임신 중 일부 혈위 주의"),
+"LR":(14,"족궐음간경","하지·복부","소통·전환축, 완충·조화축","간울·혈분·정서 긴장 방향 참고","강자극 주의"),
+"CV":(24,"임맥","전중선·복부","보충축, 수렴·안정축","하초·중초·원기·음혈 방향 참고","임신·복부 수술력 확인"),
+"GV":(28,"독맥","후중선·두항","승양·상승축","양기·두항·승양 방향 참고","두경부·척추부 자극 확인")}
+ACU_OVERRIDES = {
+"KI3":("태계","Taixi","신음·신기 보강, 허열 완충, 요슬산연·하초 허약 방향 보조","자음·보신 처방에서 핵심 후보. 하초 허약과 허열 완충 방향에 맞음","허열·음허·임신 관련 상태 확인","조건부 가능","허열·음허·도한·구건이 뚜렷하면 강한 뜸 주의","약"),
+"BL23":("신수","Shenshu","신허·하초 허약 보조, 요슬산연, 만성 허약 방향","신허와 하초 허약을 배수혈에서 보조하기 위한 핵심 후보","요부 심부 자침 위험, 신장 부위 해부학적 안전 확인","조건부 가능","하복부 냉감·허한이 분명할 때 제한 검토","약~중"),
+"BL18":("간수","Ganshu","간혈·간음 조절, 정서 긴장과 혈분 조절 보조","간신음허·혈허·협륵 긴장과 연결될 때 보조 후보","흉배부 깊은 자침 주의","제한적","허열·음허·구건·도한이 뚜렷하면 강한 뜸 주의","약"),
+"SP6":("삼음교","Sanyinjiao","비·간·신 조절, 혈·음·수습 조절, 하초·부인과 방향 보조","음혈·수습·하초 방향을 동시에 다루는 핵심 교회혈 후보","임신 가능성·임신 중 사용은 전문가 판단","조건부 가능","허열·음허·구건·도한이 뚜렷하면 강한 뜸 주의","약"),
+"CV4":("관원","Guanyuan","하초 보강, 정혈·원기 보강, 허약·냉감 방향","하초 허약과 정혈 부족 방향에서 보조 후보","복부 수술력, 임신, 심혈관 상태 확인","조건부 가능","하복부 냉감·허한이 분명할 때 제한 검토","약~중"),
+"CV6":("기해","Qihai","원기 보강, 기허 조절, 하복부 허약 보조","기허·피로·하복부 무력감이 동반될 때 보조 후보","복부 열감, 임신, 염증 상태 확인","조건부 가능","하복부 냉감·허한이 분명할 때 제한 검토","약~중"),
+"KI6":("조해","Zhaohai","음교맥, 수면·허열·음혈 부족 방향 보조","음허·허열·수면 불안정이 동반될 때 보조 후보","허열·음허 상태 확인. 강한 뜸은 신중","제한적","허열·음허·구건·불면이 뚜렷하면 강한 뜸 주의","약"),
+"ST36":("족삼리","Zusanli","비위 보강, 기혈 생성, 피로·소화 방향 보조","기허·피로·소화력 저하가 중심일 때 핵심 후보","과도한 강자극 주의","조건부 가능","열감·염증·상열감이 있으면 강도 조절","약~중"),
+"CV12":("중완","Zhongwan","비위 조절, 식체·복부팽만·소화불량 방향","소화 상태를 처방 방향과 함께 조정하기 위한 후보","복부 수술력, 임신, 급성 복통 확인","조건부 가능","복부 열감·염증성 소견 주의","약"),
+"GV20":("백회","Baihui","승양, 두부·정신 안정, 처짐 보조","중기하함·처짐·무력감에서 승양 방향 보조 후보","혈압, 두통, 상열감 확인","제한적","상열감·고혈압·두통이 있으면 강한 뜸 금물","보류~약"),
+"HT7":("신문","Shenmen","안신, 심계·불면·불안 방향","불면·심계·불안이 중심일 때 핵심 후보","과도한 진정 반응 주의","보류","강한 온열 자극보다는 안신 방향 중심","보류"),
+"PC6":("내관","Neiguan","심흉부 안정, 오심, 긴장 완화 방향","심계·불안·오심·흉민이 동반될 때 후보","항응고제·출혈 경향 확인","보류~약","국소 피부 상태와 열감 확인","보류~약"),
+"LR3":("태충","Taichong","간울 소통, 긴장·흉협불편 조절 방향","간울·스트레스성 긴장과 연결될 때 후보","강자극 주의","보류","상열감·두통·흥분이 있으면 강한 자극 주의","보류"),
+"ST40":("풍륭","Fenglong","담음·습담 조절 방향","담음정체, 가래, 어지럼, 흉민이 있을 때 후보","국소 혈관·신경 주의","조건부 가능","열담·구건·음허가 뚜렷하면 강한 뜸 주의","약"),
+"SP9":("음릉천","Yinlingquan","수습·부종·소변 문제 방향","수습정체와 부종·소변불리 방향 보조 후보","부종·피부상태 확인","조건부 가능","열감·염증·피부질환 확인","약"),
+"CV9":("수분","Shuifen","수분 정체, 복부 수습 조절 방향","부종·소변불리·수분 정체 보조 후보","복부 수술력·임신·급성 복통 확인","조건부 가능","복부 열감·염증·임신 주의","약"),
+"BL20":("비수","Pishu","비위 운화, 기혈 생성, 습담 조절","소화력 저하, 피로, 습담 경향이 있을 때 후보","흉배부 깊은 자침 주의","조건부 가능","열감·염증성 상태 주의","약~중"),
+"BL17":("격수","Geshu","혈분 조절, 혈허·어혈 방향 참고","혈허·어혈·긴장성 혈분 문제 확인 시 후보","흉배부 깊은 자침 주의","제한적","열감·출혈경향 확인","보류~약"),
+"BL15":("심수","Xinshu","심계·불면·정서 긴장 보조","심계·불면·안신 방향에서 보조 후보","흉배부 깊은 자침 주의","제한적","상열감·염증성 상태 확인","보류~약"),
+"Anmian":("안면","Anmian","수면 안정, 불면 방향 참고","불면이 주 증상일 때 보조 후보","경부 해부학적 안전 확인","보류","경부 강한 온열 자극은 신중","보류"),
+"SP3":("태백","Taibai","비위 보강, 운화 보조","비위기허와 식욕저하가 중심일 때 후보","국소 자극 확인","조건부 가능","열감·염증 확인","약"),
+"GB34":("양릉천","Yanglingquan","간담 소통, 측부 긴장 완화","간울·흉협불편·긴장성 소견 때 후보","국소 자극 확인","보류","강한 자극 주의","보류"),
+"ST25":("천추","Tianshu","장부 소통, 복부팽만·대변 조절","복부팽만·식체·대변 문제가 있을 때 후보","복부 수술력·임신 확인","조건부 가능","복부 열감·염증 확인","약"),
+"BL22":("삼초수","Sanjiaoshu","수도·기화 조절","수분정체·소변불리 방향 후보","흉요부 자침 주의","조건부 가능","열감·신장기능 확인","약"),
+"KI7":("복류","Fuliu","수분대사·신기 조절","부종·소변·땀 조절 문제 때 후보","허열·음허 확인","조건부 가능","허열·구건 확인","약"),
+"GV4":("명문","Mingmen","원양 보조, 허한 방향","허한·냉감·기력저하가 분명할 때 후보","강한 온보 자극 신중","조건부 가능","상열감·혈압 확인","약~중")
+}
+
+
+ACU_OVERRIDES.update({
+"SP4":("공손","Gongsun","충맥·비위·위완부 조절, 구역·복부 증상 보조","심하비·구역·위완부 답답함이 있을 때 중초와 충맥을 조정하는 후보","임신 가능성, 복부 급성 통증 확인","조건부 가능","복부 열감·급성 복통·임신 가능성 확인","약"),
+"CV13":("상완","Shangwan","위완부 막힘, 구역, 심하부 답답함 보조","반하사심탕형 심하비·위기상역에서 위완부 조절 후보","복부 수술력·임신·급성 복통 확인","조건부 가능","심하부가 단단하고 아프면 결흉·급성 복증 감별","약"),
+"CV14":("거궐","Juque","심하부·심계·불안·상복부 긴장 보조","심신불교·심계·상복부 긴장이 있을 때 보조 후보","흉복부 깊은 자침 주의, 심혈관 증상 확인","보류~약","흉통·심계 악화·급성 증상 시 주의","보류~약"),
+"CV17":("전중","Shanzhong","흉민, 기체, 폐·심흉부 조절","흉민·소함흉탕·계지탕류 흉부 답답함에서 참고 후보","흉부 깊은 자침 금지, 심혈관 응급 감별","보류","흉통·호흡곤란·심혈관 의심 시 우선 평가","보류"),
+"LI11":("곡지","Quchi","청열, 표열·염증성 열감 조절","실열·상열·염증성 열감이 있을 때 청열 방향 후보","허약자 강자극 주의","보류","허한·냉감이 뚜렷하면 강한 자극 주의","보류"),
+"LI4":("합곡","Hegu","해표, 소통, 두면부·표증 조절","외감·표증·기체 소통 방향에서 자주 검토되는 후보","임신 가능성, 강자극 주의","보류~약","임신 가능성·허약자 강자극 주의","보류~약"),
+"ST44":("내정","Neiting","위열·양명열·구취·상부 열감 조절","양명열·위열·갈증·열감이 있을 때 청열 보조 후보","허한·설사 경향 확인","보류","허한·냉감·설사 시 강자극 주의","보류"),
+"LU7":("열결","Lieque","해표, 폐기 선발, 경항·표증 조절","계지탕·마황탕·갈근탕류 표증에서 폐기와 표를 조절하는 후보","국소 자극·임신 가능성 확인","보류~약","고열·심계·허약자 강자극 주의","보류~약"),
+"BL13":("폐수","Feishu","폐기·기침·표증 보조","외감·기침·폐기 불리 방향에서 배수혈 후보","흉배부 깊은 자침 주의","조건부 가능","고열·염증성 열감·호흡곤란 확인","약"),
+"LU9":("태연","Taiyuan","폐기 보조, 기침·허증성 호흡 보조","폐기 허약·기침이 동반될 때 참고 후보","국소 혈관·신경 확인","보류~약","실열·고열·심계 확인","보류~약"),
+"GB20":("풍지","Fengchi","경항부 긴장, 두통·어지럼·외풍 조절","갈근탕·반하백출천마탕형 경항긴장·어지럼에서 후보","경부 해부학적 안전, 깊은 자침 주의","보류","고혈압성 두통·신경학적 이상 감별","보류"),
+"BL10":("천주","Tianzhu","경항부 긴장, 두항부 표증 조절","목·어깨 뻣뻣함과 표증이 있을 때 후보","경부 깊은 자침 주의","보류","두통·신경학적 이상 감별","보류"),
+"GV14":("대추","Dazhui","해표·청열·양기 조절","외감 표증·열감·경항부 긴장에 참고 후보","고열·허약자 강자극 주의","보류~약","실열·고열이면 뜸보다 청열·해표 방향 확인","보류"),
+"TE5":("외관","Waiguan","소양·표리 소통, 측두부·흉협 소통","소시호탕형 소양병·흉협 불편에서 소통 후보","강자극 주의","보류","상열감·두통·흥분 시 강자극 주의","보류")
+})
+
+def build_acu() -> List[Dict[str, str]]:
     rows = []
-    for _, row in df.iterrows():
-        theta = math.radians(float(row["theta_deg"]))
-        magnitude = float(row["magnitude"])
-        vector = magnitude * np.array([math.cos(theta), math.sin(theta)])
-        residual = float(np.linalg.norm(target - vector))
-        dot = float(np.dot(target, vector))
-        target_norm = float(np.linalg.norm(target))
-        vector_norm = float(np.linalg.norm(vector))
-        cosine = dot / (target_norm * vector_norm) if target_norm > 1e-12 and vector_norm > 1e-12 else 0.0
-        rows.append(
-            {
-                **row.to_dict(),
-                "vector_x": vector[0],
-                "vector_y": vector[1],
-                "cosine_alignment": cosine,
-                "residual_distance": residual,
-            }
-        )
-    return pd.DataFrame(rows).sort_values(["residual_distance", "cosine_alignment"], ascending=[True, False])
+    for pre, (cnt, mer, area, axis, meaning, caution) in MERIDIANS.items():
+        for i in range(1, cnt+1):
+            code = f"{pre}{i}"
+            r = {"code":code,"혈명":code,"standard_name":code,"경락":mer,"부위군":area,"처방 방향축":axis,"임상 의미":meaning,
+                 "왜 후보인가":"현재 입력 증상·처방 방향과 맞을 때 참고 후보","주의점":caution,"뜸 가능 여부":"조건부 가능",
+                 "뜸 주의 조건":"열감·염증·피부 상태·임신 가능성 확인","권장 강도":"보류~약"}
+            if code in ACU_OVERRIDES:
+                name, std, meaning2, why, safe, moxa, moxa_warn, strength = ACU_OVERRIDES[code]
+                r.update({"혈명":name,"standard_name":std,"임상 의미":meaning2,"왜 후보인가":why,"주의점":safe,"뜸 가능 여부":moxa,"뜸 주의 조건":moxa_warn,"권장 강도":strength})
+            rows.append(r)
+    assert len(rows) == 361
+    return clean_rows(rows)
+ACUPOINT_361 = build_acu()
+ACU_INDEX = {r["code"]: r for r in ACUPOINT_361}
+if "Anmian" not in ACU_INDEX:
+    name, std, meaning2, why, safe, moxa, moxa_warn, strength = ACU_OVERRIDES["Anmian"]
+    ACU_INDEX["Anmian"] = {"code":"Anmian","혈명":name,"standard_name":std,"경락":"경외기혈","부위군":"두경부","처방 방향축":"수렴·안정축","임상 의미":meaning2,"왜 후보인가":why,"주의점":safe,"뜸 가능 여부":moxa,"뜸 주의 조건":moxa_warn,"권장 강도":strength}
 
+def acu(code: str) -> Dict[str, str]:
+    return ACU_INDEX.get(code, {"code":code,"혈명":code,"standard_name":code,"경락":"참고","부위군":"","처방 방향축":"","임상 의미":"전문가 검토","왜 후보인가":"전문가 판단","주의점":"안전 확인","뜸 가능 여부":"보류","뜸 주의 조건":"전문가 판단","권장 강도":"보류"})
 
-# -----------------------------------------------------------------------------
-# 리포트 생성
-# -----------------------------------------------------------------------------
-def research_report(
-    case_id: str,
-    notes: str,
-    weights: Sequence[float],
-    state: VectorState,
-    solid_summary: pd.DataFrame,
-) -> Dict[str, object]:
-    return {
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "case_id": case_id,
-        "scope": "education_and_research_only",
-        "safety_statement": (
-            "This output is a geometric research record, not a diagnosis, prescription, "
-            "acupuncture/moxibustion instruction, dosage recommendation, or proof of clinical efficacy."
-        ),
-        "input_notes": notes,
-        "ten_phase_weights": [float(v) for v in weights],
-        "ten_phase_labels": [
-            {"stem": TEN_STEMS[i], "phase": FIVE_PHASES[i], "yin_yang": YIN_YANG[i]}
-            for i in range(10)
-        ],
-        "vector_state": asdict(state),
-        "solid_topology": solid_summary.to_dict(orient="records"),
-    }
+# ---------------- 입력 상태 ----------------
+EXAMPLES = {
+"육미지황환 테스트": {"formula_name":"육미지황환","chief":"허리와 무릎이 약하고 오후에 열감이 있으며, 입마름과 도한이 있음. 피로가 오래가고 소변이 잦음.","global_note":"만성피로와 회복력 저하를 주소로 내원함. 안색은 창백하고 쉽게 피로하며, 식욕저하와 가벼운 어지럼을 동반함. 맥은 허약하고 설질은 담백하고 치흔이 관찰됨.","goal":"피로 회복, 허열 완충, 하초 허약 보조, 소화 부담 최소화","pulse":"허맥, 세맥","tongue":"건조, 소태","abdomen":"하복부 무력","bp":"118/76","labs":"","meds":"","checked_safety":["만성 소화불량/설사"]},
+"보중익기탕 테스트": {"formula_name":"보중익기탕","chief":"오래 피곤하고 기운이 처지며 식욕이 떨어짐. 말할 때 힘이 없고 오후에 무력감이 심함.","global_note":"중기하함과 기허가 의심됨. 단, 불면과 상열감이 동반되는지 확인 필요.","goal":"피로 회복, 기허 보강, 비위 기능 회복","pulse":"허맥","tongue":"담백, 치흔","abdomen":"상복부 무력","bp":"126/78","labs":"","meds":"","checked_safety":[]},
+"산조인탕 테스트": {"formula_name":"산조인탕","chief":"잠을 깊이 못 자고 쉽게 깨며 심계와 불안이 있음. 낮에는 피로하고 집중이 어려움.","global_note":"허번불면과 혈허 경향 확인. 수면제 병용 여부와 낮 졸림을 반드시 확인.","goal":"수면 안정, 심계 완화, 불안 완충","pulse":"세맥","tongue":"건조","abdomen":"긴장","bp":"112/70","labs":"","meds":"수면제 복용 여부 확인 필요","checked_safety":["수면제/항우울제/진정제"]}
+}
 
+EXAMPLES.update({
+"반하사심탕 테스트": {
+    "formula_name":"반하사심탕",
+    "chief":"상한 5~6일 뒤 구역질이 있고 열감이 있음. 명치 아래가 그득하지만 아프지는 않음. 식후 더부룩하고 복명, 묽은 변이 있음.",
+    "global_note":"심하비·한열착잡·비위불화 경향. 흉협고만보다 명치 아래 비만이 중심이며, 심하부가 단단하고 아프면 결흉 감별 필요.",
+    "goal":"구역 완화, 심하비 해소, 비위 승강 회복, 한열 조화",
+    "pulse":"현약 또는 완",
+    "tongue":"태백니 또는 황백이 섞임",
+    "abdomen":"심하비, 그득하나 압통은 뚜렷하지 않음",
+    "bp":"120/78",
+    "labs":"",
+    "meds":"",
+    "checked_safety":["만성 소화불량/설사"]
+},
+"소시호탕 테스트": {
+    "formula_name":"소시호탕",
+    "chief":"오한과 열감이 오가고 흉협부가 답답함. 입이 쓰고 목이 마르며 구역과 식욕저하가 있음.",
+    "global_note":"소양병·반표반리 경향. 단, 명치 아래가 그득하지만 아프지 않은 심하비가 중심이면 반하사심탕 감별.",
+    "goal":"소양 화해, 흉협 조화, 구역 완화",
+    "pulse":"현맥",
+    "tongue":"태박황",
+    "abdomen":"흉협고만",
+    "bp":"122/76",
+    "labs":"",
+    "meds":"",
+    "checked_safety":["실열/염증성 열감"]
+}
+})
 
-# -----------------------------------------------------------------------------
-# 앱 화면
-# -----------------------------------------------------------------------------
-solids = build_solids()
-solid_summary = pd.DataFrame(
-    [
-        {
-            "다면체": name,
-            "V 꼭짓점": len(data["vertices"]),
-            "E 모서리": len(data["edges"]),
-            "F 면": int(data["faces"]),
-            "오일러 V-E+F": len(data["vertices"]) - len(data["edges"]) + int(data["faces"]),
-        }
-        for name, data in solids.items()
-    ]
-)
+DEFAULT = dict(EXAMPLES["육미지황환 테스트"])
+DEFAULT["show_research"] = False
+for k, v in DEFAULT.items():
+    st.session_state.setdefault(k, v)
 
-st.title("☯️ 황금비 다면체 × 한의학 연구 엔진")
-st.caption("Golden-ratio Polyhedral Geometry & TCM Hypothesis Workbench")
-
-st.warning(
-    "이 앱은 수학·정보기하학 연구 및 교육용입니다. 다면체와 경혈·경락·장부·처방 사이의 대응은 "
-    "검증된 생리학적 인과관계가 아니라 사용자가 시험하는 가설입니다. 자동 진단, 처방 용량, 침구·뜸 시술 지시를 생성하지 않습니다."
-)
+SAFETY_OPTIONS = ["항응고제/항혈소판제/NSAIDs","혈압약","당뇨약","수면제/항우울제/진정제","임신/수유","소아/고령자/허약자","만성 소화불량/설사","피부 감각저하/당뇨성 말초신경병증","실열/염증성 열감","피부질환/상처/감염","수술/시술 예정","간·신장 기능 저하","다른 한약·건기식·보충제 병용"]
 
 with st.sidebar:
-    st.header("연구 설정")
-    case_id = st.text_input("사례/실험 ID", value="CASE-001")
-    phase_offset = st.slider("정10각형 시작 위상(°)", 0.0, 360.0, 90.0, 1.0)
-    projection_rotation = st.slider("3D 투영 전 Z축 회전(°)", 0.0, 360.0, 0.0, 1.0)
-    st.divider()
-    st.markdown("**해석 층 구분**")
-    st.markdown("- 수학 층: 정확한 좌표·위상·주기 계산")
-    st.markdown("- 가설 층: 십간·오행·경맥과의 상징적 대응")
-    st.markdown("- 임상 층: 이 앱에서 자동 결론 금지")
+    st.header("입력")
+    ex_name = st.selectbox("테스트 예시 불러오기", list(EXAMPLES.keys()), key="example_name")
+    if st.button("예시 적용", width="stretch"):
+        for k, v in EXAMPLES[ex_name].items():
+            st.session_state[k] = v
+        st.rerun()
+    st.selectbox("처방 선택", list(FORMULAS.keys()), key="formula_name")
+    st.text_area("주증상 / 메모", key="chief", height=110)
+    st.text_area("한의사 종합소견", key="global_note", height=150)
+    st.text_area("치료 목표", key="goal", height=90)
+    st.subheader("진맥·설진·복진")
+    st.text_input("맥상", key="pulse")
+    st.text_input("설질·설태", key="tongue")
+    st.text_input("복진/형태", key="abdomen")
+    st.subheader("안전성")
+    st.text_input("혈압", key="bp", placeholder="예: 118/76")
+    st.text_area("AST/ALT, creatinine/eGFR 등 검사값", key="labs", height=80)
+    st.text_area("현재 복용약 상세", key="meds", height=80)
+    st.multiselect("해당 항목 선택", SAFETY_OPTIONS, key="checked_safety")
+    st.checkbox("🔬 연구자용 Q6/H(3,4) 탭 보기", key="show_research")
+
+formula_name = st.session_state.get("formula_name","육미지황환")
+formula = FORMULAS.get(formula_name, FORMULAS["육미지황환"])
+chief = st.session_state.get("chief","")
+global_note = st.session_state.get("global_note", st.session_state.get("global",""))
+goal = st.session_state.get("goal","")
+pulse = st.session_state.get("pulse","")
+tongue = st.session_state.get("tongue","")
+abdomen = st.session_state.get("abdomen","")
+bp = st.session_state.get("bp","")
+labs = st.session_state.get("labs","")
+meds = st.session_state.get("meds","")
+checked_safety = st.session_state.get("checked_safety",[])
+
+# ---------------- 분석 함수 ----------------
+def parse_bp(text: str) -> Optional[tuple[int,int]]:
+    m = re.search(r"(\d{2,3})\s*/\s*(\d{2,3})", clean_cell(text))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+def bp_message(text: str) -> str:
+    p = parse_bp(text)
+    if not p:
+        return "혈압 미입력. 고혈압·저혈압 병력과 현재 복용약 확인."
+    s, d = p
+    if s >= 160 or d >= 100:
+        return f"입력 혈압 {s}/{d}: 고혈압 범위 가능성. 강한 온열·승양 자극 전 재확인."
+    if s >= 140 or d >= 90:
+        return f"입력 혈압 {s}/{d}: 혈압 추적 및 혈압약 복용 여부 확인."
+    if s < 90 or d < 60:
+        return f"입력 혈압 {s}/{d}: 저혈압 경향 가능성. 어지럼·허약감 확인."
+    return f"입력 혈압 {s}/{d}: 입력 기준으로는 고혈압 경고가 자동 발생하지 않습니다."
+
+def safety_rows() -> List[Dict[str,str]]:
+    rows=[]; text=" ".join([chief, global_note, labs, meds])
+    if "만성 소화불량/설사" in checked_safety or has_any(text,["설사","식체","더부룩","복부팽만","소화력 저하"]):
+        rows.append({"확인 항목":"만성 소화불량/설사","우선순위":"높음","확인 내용":"보음·보혈·보약 처방의 위장 부담, 설사·복부팽만·식체 확인."})
+    if not clean_cell(labs):
+        rows.append({"확인 항목":"검사값 미입력","우선순위":"중간","확인 내용":"장기 복용 전 AST/ALT, creatinine/eGFR 확인 권장."})
+    if "항응고제/항혈소판제/NSAIDs" in checked_safety or has_any(meds,["아스피린","와파린","클로피도그렐","항응고","항혈소판"]):
+        rows.append({"확인 항목":"항응고제/항혈소판제/NSAIDs","우선순위":"높음","확인 내용":"출혈 경향, 자침 후 멍·출혈, 약재 상호작용 가능성 확인."})
+    if "수면제/항우울제/진정제" in checked_safety or has_any(meds,["수면제","졸피뎀","벤조","항우울","진정제"]):
+        rows.append({"확인 항목":"수면제/항우울제/진정제","우선순위":"중간","확인 내용":"졸림, 반응저하, 낮 시간 기능저하, 병용 약물 확인."})
+    if "임신/수유" in checked_safety:
+        rows.append({"확인 항목":"임신/수유","우선순위":"높음","확인 내용":"약재·혈위·뜸 사용은 반드시 전문가 판단. 강자극 혈위 주의."})
+    if "피부 감각저하/당뇨성 말초신경병증" in checked_safety:
+        rows.append({"확인 항목":"피부 감각저하/말초신경병증","우선순위":"높음","확인 내용":"뜸 화상 위험 증가. 온열 자극 전 피부 감각 확인."})
+    if "실열/염증성 열감" in checked_safety or has_any(text,["열감","염증","붉은","상열","오후열감"]):
+        rows.append({"확인 항목":"열감/염증성 소견","우선순위":"중간","확인 내용":"강한 뜸·온보·승양 자극 전 허열/실열 구분."})
+    if "수술/시술 예정" in checked_safety:
+        rows.append({"확인 항목":"수술/시술 예정","우선순위":"중간","확인 내용":"시술 전후 출혈·감염·복용약 조정 여부 확인."})
+    if "간·신장 기능 저하" in checked_safety:
+        rows.append({"확인 항목":"간·신장 기능 저하","우선순위":"높음","확인 내용":"장기 복용 전후 검사값 확인 및 용량·기간 신중 검토."})
+    return rows or [{"확인 항목":"특이 안전 신호 없음","우선순위":"낮음","확인 내용":"입력된 정보 기준. 실제 문진·맥진·검사값 확인 필요."}]
+
+def safety_summary(rows: List[Dict[str,str]]) -> str:
+    s = "; ".join(f"{r['확인 항목']}({r['우선순위']})" for r in rows if r["확인 항목"]!="특이 안전 신호 없음")
+    return s or "현재 입력 기준 특이 안전 신호 없음"
+
+def candidate_rows() -> List[Dict[str,str]]:
+    out=[]
+    for c in formula["핵심 혈위"]:
+        a=acu(c)
+        out.append({"code":c,"혈명":a["혈명"],"standard_name":a["standard_name"],"경락":a["경락"],"처방 방향축":a["처방 방향축"],"임상 의미":a["임상 의미"],"왜 후보인가":a["왜 후보인가"],"주의점":a["주의점"]})
+    return out
+
+def moxa_rows() -> List[Dict[str,str]]:
+    out=[]
+    for c in formula["핵심 혈위"]:
+        a=acu(c)
+        out.append({"code":c,"혈명":a["혈명"],"가능/보류":a["뜸 가능 여부"],"주의 조건":a["뜸 주의 조건"],"권장 강도":a["권장 강도"],"시술 전 확인":a["주의점"]})
+    return out
+
+def chart_note() -> str:
+    safe = safety_rows()
+    ac_names = ", ".join([f"{c} {acu(c)['혈명']}" for c in formula["핵심 혈위"]])
+    checked = ", ".join(checked_safety) if checked_safety else "특이 선택 없음"
+    safe_lines = "\n".join([f"- {r['확인 항목']}({r['우선순위']}): {r['확인 내용']}" for r in safe if r["확인 항목"]!="특이 안전 신호 없음"]) or "- 현재 입력 기준 특이 안전 신호는 뚜렷하지 않음. 단, 실제 문진과 검사값 확인 필요."
+    return f"""[변증 초안]
+{formula['전통 변증']} 경향. 주증상과 전체 소견을 종합할 때 '{formula_name}' 방향 검토.
+입력 주증상: {chief or '미입력'}
+종합 소견: {global_note or '미입력'}
+
+[처방 방향]
+{formula['처방 방향']}
+치료 목표: {goal or '미입력'}
+주의 환자상: {formula['주의 환자상']}
+
+[진맥·설진·복진 대조]
+맥상: {pulse or '미입력'}
+설질·설태: {tongue or '미입력'}
+복진/형태: {abdomen or '미입력'}
+해석: 입력 소견이 처방 방향과 다르면 처방 자체보다 감별·가감·침구 방향을 먼저 조정.
+
+[침구 방향]
+핵심 후보: {ac_names}
+후보 근거: 해당 혈위는 자동 시술 지시가 아니라 처방 변증과 자주 연결되는 참고 후보입니다.
+임상 확인: 처방 방향과 침구 자극 방향이 서로 충돌하지 않는지 확인.
+
+[뜸]
+가능 조건: {formula['뜸 가능 조건']}
+주의 조건: {formula['뜸 주의 조건']}
+권장 강도: {formula['권장 강도']}
+판단: 뜸은 화상·감염·피부 자극 위험이 있으므로 감각저하, 당뇨성 말초신경병증, 실열·상열, 임신, 피부질환을 확인한 뒤 결정.
+
+[안전성 및 추적]
+{safe_lines}
+혈압: {bp_message(bp)}
+검사/복용약 메모: {labs or '검사값 미입력'} / {meds or '복용약 미입력'}
+체크된 안전 항목: {checked}
+
+[최종 확인]
+이 문서는 EMR에 복사하기 위한 초안입니다. 자동 확정 처방이 아니며, 실제 처방 여부·용량·복용 기간·침구 혈위·자침 깊이·뜸 부위와 강도는 면허가 있는 한의사가 문진, 맥진, 설진, 복진, 검사값, 복용약, 환자 상태를 종합하여 최종 결정합니다."""
+
+def patient_text() -> str:
+    checked = ", ".join(checked_safety) if checked_safety else "현재 입력 기준 특별히 체크된 항목 없음"
+    return f"""입력된 증상/메모: {chief or '미입력'}
+
+{formula_name}은/는 전통 한의학에서 '{formula['전통 변증']}' 방향에서 검토되는 처방입니다.
+
+쉽게 말하면, {formula['환자용 핵심']} 다만 환자 상태에 따라 맞지 않을 수 있으므로 맥, 설진, 복진, 복용약, 검사값을 함께 확인해야 합니다.
+
+현재 이 처방은 '{formula['처방 방향']}' 방향에서 검토됩니다.
+
+복용 전후에는 다음 항목을 관찰해 주세요.
+- 소화상태, 대변 변화, 피로감 변화, 수면 변화, 소변 변화, 열감·도한, 혈압/혈당 변화
+
+현재 안전 체크 항목:
+- {checked}
+
+불편감이 생기거나 기존 증상이 악화되면 임의로 계속 복용하지 말고 담당 한의사에게 알려야 합니다.
+
+이 설명은 처방을 자동으로 정하거나 효과를 보장하는 내용이 아닙니다. 실제 복용 여부와 용량은 담당 한의사가 결정합니다."""
+
+def core_rows():
+    return [{"항목":k, "내용":v} for k,v in [
+        ("처방명",formula_name),("분류",formula["분류"]),("전통 변증",formula["전통 변증"]),("처방 방향",formula["처방 방향"]),
+        ("구성 약재",", ".join(formula["구성 약재"])),("잘 맞는 환자상",formula["잘 맞는 환자상"]),("주의 환자상",formula["주의 환자상"]),
+        ("감별 처방",formula["감별 처방"]),("가감 방향",formula["가감 방향"])]]
+
+def axes_rows():
+    axes=set(formula["처방 방향축"])
+    base=[("보충축","기·혈·음·양·정혈을 보태는 방향","피로, 무력, 안색창백, 식욕저하, 요슬산연"),
+          ("수렴·안정축","흩어진 기운을 안으로 모으고 안정시키는 방향","불면, 심계, 도한, 불안, 진액 소모"),
+          ("승양·상승축","아래로 처진 기운을 위로 끌어올리는 방향","처짐, 중기하함, 무력감, 기단, 하수감"),
+          ("배출·이수축","정체된 수분·습담·노폐를 밖으로 빼는 방향","부종, 소변불리, 몸무거움, 습담"),
+          ("소통·전환축","막힌 기혈과 비위 흐름을 돌리는 방향","흉협고만, 복부팽만, 식체, 기체, 어혈"),
+          ("완충·조화축","치우친 보·사·한·열을 조절하는 중간 조화 방향","보하면 체하고, 사하면 허해지는 중간형")]
+    return [{"축":a,"뜻":b,"대표 소견":c,"현재 처방 관련성":"중심" if a in axes else "보조 확인"} for a,b,c in base]
+
+def herb_rows():
+    roles=["군약","신약","신약","좌사약","사약","사약","보조","보조","보조","보조"]
+    return [{"역할":roles[i] if i<len(roles) else "구성","약재":h,"전통 역할":"처방 방향을 구성하는 약재. 실제 용량·배합은 한의사 판단","확인":"귀경·사기·오미·용량 확인"} for i,h in enumerate(formula["구성 약재"])]
+
+def dongui_rows():
+    return [
+        {"동의보감 편제":"신(腎)·허로(虛勞)·정(精)","연결 이유":"간신 부족, 허로, 정혈 부족 편제와 연결 가능"},
+        {"동의보감 편제":"허로·기혈","연결 이유":"오래 지치고 회복력이 떨어지는 허로·기혈 부족 해석"},
+        {"동의보감 편제":"내상","연결 이유":"소화력이 약한 경우 비위 내상 관점과 함께 재검토"}]
+
+def get_tensegrity_html(
+    acu_list: List[str],
+    formula_name: str = "",
+    formula_data: Optional[Dict[str, Any]] = None,
+    chief_text: str = "",
+    safety_text: str = ""
+) -> str:
+    """현재 선택 처방에 맞춰 병리 패턴과 침구 후보가 자동 연동되는 텐세그리티 HTML."""
+    import json
+
+    formula_data = formula_data or {}
+
+    def organ_for_acu(code: str) -> str:
+        kidney = {"KI3", "KI6", "KI7", "BL23", "CV4", "GV4"}
+        liver = {"BL18", "LR3", "GB34", "GB20", "BL10", "TE5"}
+        spleen = {"ST36", "CV6", "CV12", "CV13", "BL20", "SP3", "SP4", "SP6", "SP9", "ST25", "ST40", "CV9", "BL22"}
+        heart = {"HT7", "PC6", "BL15", "Anmian", "CV14", "CV17"}
+        lung = {"LU1", "LU7", "LU9", "BL13", "LI4", "LI11", "ST44", "GV14"}
+        if code in kidney:
+            return "신·하초"
+        if code in liver:
+            return "간·소통"
+        if code in spleen:
+            return "비위·중초"
+        if code in heart:
+            return "심·안신"
+        if code in lung:
+            return "폐·표"
+        return "중심 조화"
+
+    formula_profiles = {
+        "육미지황환": {
+            "pattern": "간신음허·허열도한·하초 허약",
+            "modelNote": "신·간 축이 약해지고 허열이 위로 뜨는 패턴을 먼저 표시합니다. KI3/BL23/KI6/SP6은 신·하초와 음혈축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"kidney": {"x": 0.00, "y": 0.55}, "liver": {"x": -0.32, "y": -0.06}, "heart": {"x": 0.18, "y": -0.32}, "spleen": {"x": 0.10, "y": 0.12}},
+            "focus": ["kidney", "liver", "heart"]
+        },
+        "보중익기탕": {
+            "pattern": "비위기허·중기하함·기허 피로",
+            "modelNote": "단전/비위 중심이 아래로 처지는 패턴을 먼저 표시합니다. ST36/CV6/GV20/BL20은 중심과 승양축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.18, "y": 0.45}, "heart": {"x": 0.00, "y": 0.18}, "kidney": {"x": 0.00, "y": 0.20}},
+            "focus": ["spleen", "heart"]
+        },
+        "산조인탕": {
+            "pattern": "허번불면·심계·불안·혈허",
+            "modelNote": "심축이 들뜨고 신수축이 안정되지 못하는 패턴을 표시합니다. HT7/PC6/KI6/Anmian은 심신 안정을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"heart": {"x": 0.26, "y": -0.50}, "kidney": {"x": -0.10, "y": 0.24}, "spleen": {"x": 0.10, "y": 0.08}},
+            "focus": ["heart", "kidney"]
+        },
+        "귀비탕": {
+            "pattern": "심비양허·불면·건망·심계",
+            "modelNote": "심과 비위 중심이 함께 약해진 패턴을 표시합니다. HT7/SP6/ST36/BL20/PC6은 심비축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"heart": {"x": 0.18, "y": -0.35}, "spleen": {"x": 0.22, "y": 0.28}},
+            "focus": ["heart", "spleen"]
+        },
+        "소요산": {
+            "pattern": "간울·흉협불편·비위 조화 저하",
+            "modelNote": "간축이 옆으로 당겨지고 비위 중심이 따라 흔들리는 패턴을 표시합니다. LR3/PC6/SP6/GB34는 소통축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"liver": {"x": -0.55, "y": -0.12}, "spleen": {"x": 0.16, "y": 0.15}, "heart": {"x": 0.10, "y": -0.10}},
+            "focus": ["liver", "spleen"]
+        },
+        "이진탕": {
+            "pattern": "담음정체·오심·흉민·어지럼",
+            "modelNote": "비위 중심과 폐·상초 소통축이 습담으로 막히는 패턴을 표시합니다. ST40/CV12/ST36/SP9은 담음·수습축을 완화하는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.35, "y": 0.18}, "lung": {"x": 0.42, "y": -0.06}},
+            "focus": ["spleen", "lung"]
+        },
+        "평위산": {
+            "pattern": "비위습탁·식체·복부팽만",
+            "modelNote": "중초 비위 노드가 막히고 무거워지는 패턴을 표시합니다. CV12/ST36/SP9/ST25는 중초 소통축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.45, "y": 0.30}},
+            "focus": ["spleen"]
+        },
+        "오령산": {
+            "pattern": "수습정체·소변불리·부종",
+            "modelNote": "신·수분대사축과 비위 수습축이 함께 정체된 패턴을 표시합니다. SP9/CV9/BL22/KI7은 이수·기화축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"kidney": {"x": -0.20, "y": 0.48}, "spleen": {"x": 0.22, "y": 0.22}},
+            "focus": ["kidney", "spleen"]
+        },
+        "십전대보탕": {
+            "pattern": "기혈양허·허한·회복 저하",
+            "modelNote": "비위·신·중심축의 전반적 저하 패턴을 표시합니다. ST36/CV6/BL20/BL23/GV4는 보충·온보축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.18, "y": 0.32}, "kidney": {"x": 0.00, "y": 0.32}, "heart": {"x": 0.00, "y": 0.14}},
+            "focus": ["spleen", "kidney"]
+        },
+        "팔진탕": {
+            "pattern": "기혈양허·피로·어지럼",
+            "modelNote": "비위 중심과 혈분 보조축이 약해진 패턴을 표시합니다. ST36/SP6/BL20/BL17/CV6은 기혈 보충축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.18, "y": 0.28}, "liver": {"x": -0.16, "y": 0.08}},
+            "focus": ["spleen", "liver"]
+        },
+        "사물탕": {
+            "pattern": "혈허·건조·어지럼",
+            "modelNote": "간혈·혈분축이 약해진 패턴을 표시합니다. SP6/BL17/BL20/ST36/LR3는 혈분 보조축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"liver": {"x": -0.34, "y": 0.06}, "spleen": {"x": 0.14, "y": 0.18}},
+            "focus": ["liver", "spleen"]
+        }
+    }
 
 
-tabs = st.tabs(
-    [
-        "1. 수학 검증",
-        "2. 3D 다면체",
-        "3. 2D 정10각형 벡터",
-        "4. 12경맥 네트워크 가설",
-        "5. 후보 벡터 비교",
-        "6. 연구 리포트",
-        "7. 임상 검증 설계",
+    formula_profiles.update({
+        "반하사심탕": {
+            "pattern": "심하비·한열착잡·비위불화",
+            "modelNote": "중초 비위 노드가 막히고 위기상역으로 상부 긴장이 생기는 패턴입니다. CV12/PC6/ST36/SP4/CV13은 심하비·구역·비위 승강축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"spleen": {"x": 0.38, "y": 0.20}, "heart": {"x": 0.15, "y": -0.22}, "lung": {"x": 0.18, "y": -0.06}},
+            "focus": ["spleen", "heart"]
+        },
+        "소시호탕": {
+            "pattern": "소양불화·흉협고만·구역",
+            "modelNote": "간담 소양축이 옆으로 긴장하고 중초가 따라 흔들리는 패턴입니다. GB34/TE5/PC6/LR3는 소양·흉협 소통축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"liver": {"x": -0.48, "y": -0.14}, "spleen": {"x": 0.12, "y": 0.10}, "heart": {"x": 0.10, "y": -0.10}},
+            "focus": ["liver", "spleen"]
+        },
+        "대시호탕": {
+            "pattern": "소양양명 합병·흉협심하 긴장·변비",
+            "modelNote": "간담 소양축과 중초·장부 소통축이 동시에 막힌 실증성 패턴입니다. GB34/LR3/ST25/CV12는 소통·배출축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"liver": {"x": -0.55, "y": -0.18}, "spleen": {"x": 0.32, "y": 0.18}},
+            "focus": ["liver", "spleen"]
+        },
+        "소함흉탕": {
+            "pattern": "담열결흉·흉민·심하부 답답함",
+            "modelNote": "심흉부와 중초 사이에 담열성 긴장이 걸린 패턴입니다. CV17/CV12/PC6/ST40은 흉격·담음 소통축을 회복시키는 버튼으로 작동합니다.",
+            "offsets": {"heart": {"x": 0.25, "y": -0.25}, "spleen": {"x": 0.26, "y": 0.12}, "lung": {"x": 0.30, "y": -0.08}},
+            "focus": ["heart", "spleen", "lung"]
+        },
+        "대함흉탕": {
+            "pattern": "결흉·심하부 단단함과 통증·수열결",
+            "modelNote": "심하부와 흉격에 강한 실증성 장력이 걸린 위험 패턴입니다. 실제 임상에서는 급성 복증·응급 감별을 우선 표시해야 합니다.",
+            "offsets": {"heart": {"x": 0.40, "y": -0.30}, "spleen": {"x": 0.42, "y": 0.22}, "lung": {"x": 0.30, "y": -0.12}},
+            "focus": ["heart", "spleen", "lung"]
+        },
+        "황련해독탕": {
+            "pattern": "삼초실열·번조·상열",
+            "modelNote": "심화와 상부 열감 축이 과도하게 들뜨는 패턴입니다. LI11/LI4/ST44/GV14는 청열·소통 방향의 참고 버튼으로 작동합니다.",
+            "offsets": {"heart": {"x": 0.36, "y": -0.48}, "liver": {"x": -0.25, "y": -0.18}, "lung": {"x": 0.26, "y": -0.12}},
+            "focus": ["heart", "liver", "lung"]
+        },
+        "백호가인삼탕": {
+            "pattern": "양명기분열·갈증·진액 손상",
+            "modelNote": "상부 열과 진액 소모가 함께 나타나는 패턴입니다. LI11/ST44/ST36/SP6은 청열·생진·중초 보조축을 표시합니다.",
+            "offsets": {"heart": {"x": 0.22, "y": -0.46}, "spleen": {"x": 0.15, "y": 0.12}, "lung": {"x": 0.20, "y": -0.12}},
+            "focus": ["heart", "spleen"]
+        },
+        "계지탕": {
+            "pattern": "태양중풍·영위불화·표허",
+            "modelNote": "폐·표층 축이 흔들리고 비위 완충축이 보조되는 패턴입니다. LU7/LI4/BL13/ST36은 해표·조영위축을 표시합니다.",
+            "offsets": {"lung": {"x": 0.30, "y": -0.10}, "spleen": {"x": 0.08, "y": 0.06}},
+            "focus": ["lung", "spleen"]
+        },
+        "마황탕": {
+            "pattern": "태양상한·무한·오한신통",
+            "modelNote": "폐·표층 축이 닫히고 외부 장력이 증가한 패턴입니다. LU7/LI4/BL13/GV14는 해표·선폐축을 표시합니다.",
+            "offsets": {"lung": {"x": 0.55, "y": -0.15}, "heart": {"x": 0.15, "y": -0.15}},
+            "focus": ["lung"]
+        },
+        "갈근탕": {
+            "pattern": "태양표증·항배강·경항긴장",
+            "modelNote": "폐·표층과 간담·경항부 긴장축이 함께 당겨진 패턴입니다. GB20/BL10/LI4/LU7은 경항부·해표축을 표시합니다.",
+            "offsets": {"lung": {"x": 0.38, "y": -0.12}, "liver": {"x": -0.22, "y": -0.05}},
+            "focus": ["lung", "liver"]
+        },
+        "팔미지황환": {
+            "pattern": "신양허·하초 냉감·기화 저하",
+            "modelNote": "신·하초 축이 냉하고 처지는 패턴입니다. KI3/BL23/GV4/CV4/KI7은 온보신양·기화축을 표시합니다.",
+            "offsets": {"kidney": {"x": 0.00, "y": 0.48}, "spleen": {"x": 0.10, "y": 0.22}},
+            "focus": ["kidney", "spleen"]
+        },
+        "온경탕": {
+            "pattern": "충임허한·혈허어혈·하복부 냉감",
+            "modelNote": "하초·간혈·비위축이 차고 막힌 패턴입니다. SP6/CV4/CV6/ST36/LR3은 온경·양혈·충임 조절축을 표시합니다.",
+            "offsets": {"liver": {"x": -0.25, "y": 0.18}, "kidney": {"x": 0.00, "y": 0.25}, "spleen": {"x": 0.12, "y": 0.15}},
+            "focus": ["liver", "kidney", "spleen"]
+        },
+        "천왕보심단": {
+            "pattern": "심신불교·음허혈소·불면심계",
+            "modelNote": "심축이 들뜨고 신수·음혈축이 받쳐주지 못하는 패턴입니다. HT7/PC6/KI6/SP6/CV14는 심신교통·안신축을 표시합니다.",
+            "offsets": {"heart": {"x": 0.32, "y": -0.46}, "kidney": {"x": -0.05, "y": 0.28}},
+            "focus": ["heart", "kidney"]
+        },
+        "가미소요산": {
+            "pattern": "간울혈허·울열·상열감",
+            "modelNote": "간축 긴장과 심화·상열이 함께 나타나는 패턴입니다. LR3/PC6/SP6/GB34/LI11은 소간·청열·조화축을 표시합니다.",
+            "offsets": {"liver": {"x": -0.45, "y": -0.15}, "heart": {"x": 0.22, "y": -0.28}, "spleen": {"x": 0.12, "y": 0.15}},
+            "focus": ["liver", "heart", "spleen"]
+        },
+        "반하백출천마탕": {
+            "pattern": "풍담상요·어지럼·두중",
+            "modelNote": "비위 담음축과 간담·두항부 축이 함께 흔들리는 패턴입니다. ST40/GB20/PC6/CV12/SP9는 화담·식풍축을 표시합니다.",
+            "offsets": {"spleen": {"x": 0.36, "y": 0.18}, "liver": {"x": -0.20, "y": -0.20}, "lung": {"x": 0.15, "y": -0.05}},
+            "focus": ["spleen", "liver"]
+        },
+        "진무탕": {
+            "pattern": "양허수범·부종·설사·소변불리",
+            "modelNote": "신양·수분대사축과 비위 수습축이 차고 처진 패턴입니다. KI7/CV4/CV6/SP9/BL23은 온양이수축을 표시합니다.",
+            "offsets": {"kidney": {"x": -0.10, "y": 0.52}, "spleen": {"x": 0.25, "y": 0.32}},
+            "focus": ["kidney", "spleen"]
+        },
+        "소건중탕": {
+            "pattern": "중초허한·허로·복부 은통",
+            "modelNote": "중초 비위 중심이 허하고 차가운 패턴입니다. CV12/ST36/SP6/CV6/BL20은 온중보허축을 표시합니다.",
+            "offsets": {"spleen": {"x": 0.16, "y": 0.30}},
+            "focus": ["spleen"]
+        },
+        "대건중탕": {
+            "pattern": "중초한성 복통·복부 냉감·장관운동 저하",
+            "modelNote": "중초·하복부 축이 차고 강하게 긴장한 패턴입니다. CV12/ST36/CV6/ST25/SP6은 온중산한·강역축을 표시합니다.",
+            "offsets": {"spleen": {"x": 0.34, "y": 0.38}, "kidney": {"x": 0.00, "y": 0.18}},
+            "focus": ["spleen", "kidney"]
+        },
+        "향사평위산": {
+            "pattern": "비위습탁·기체·식체·트림",
+            "modelNote": "비위 중심에 습탁과 기체가 함께 쌓인 패턴입니다. CV12/ST36/PC6/ST25/SP9는 행기화습·조중축을 표시합니다.",
+            "offsets": {"spleen": {"x": 0.46, "y": 0.25}, "liver": {"x": -0.16, "y": 0.08}},
+            "focus": ["spleen", "liver"]
+        },
+        "곽향정기산": {
+            "pattern": "외감풍한·내상습체·오심설사",
+            "modelNote": "폐·표층과 비위 습체축이 동시에 흔들리는 패턴입니다. CV12/ST36/PC6/LI4/ST25는 해표화습·중초조화축을 표시합니다.",
+            "offsets": {"spleen": {"x": 0.38, "y": 0.22}, "lung": {"x": 0.28, "y": -0.12}},
+            "focus": ["spleen", "lung"]
+        }
+    })
+
+    profile = formula_profiles.get(formula_name, {
+        "pattern": formula_data.get("전통 변증", "선택 처방 패턴"),
+        "modelNote": "선택 처방의 핵심 혈위를 기준으로 중심 평형 회복 과정을 표시합니다.",
+        "offsets": {"spleen": {"x": 0.22, "y": 0.22}},
+        "focus": ["spleen"]
+    })
+
+    candidates = []
+    for i, code in enumerate(acu_list):
+        a = acu(code)
+        candidates.append({
+            "code": code,
+            "name": a.get("혈명", code),
+            "standard": a.get("standard_name", code),
+            "meridian": a.get("경락", ""),
+            "axis": a.get("처방 방향축", ""),
+            "organ": organ_for_acu(code),
+            "why": a.get("왜 후보인가", ""),
+            "meaning": a.get("임상 의미", ""),
+            "safety": a.get("주의점", ""),
+            "rank": i + 1
+        })
+
+    payload = {
+        "formulaName": formula_name,
+        "formulaDirection": formula_data.get("처방 방향", ""),
+        "pattern": profile["pattern"],
+        "modelNote": profile["modelNote"],
+        "offsets": profile["offsets"],
+        "focus": profile.get("focus", []),
+        "chief": chief_text,
+        "safety": safety_text
+    }
+
+    template = """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>처방 연동 텐세그리티 역학 엔진</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{background:#0f172a;color:#e2e8f0;font-family:Pretendard,Arial,sans-serif;overflow:hidden;margin:0;padding:0}
+    canvas{background:radial-gradient(circle at center,#1e293b 0%,#0f172a 100%);box-shadow:0 0 20px rgba(0,0,0,.55);border-radius:1rem;width:100%;height:100%;object-fit:contain}
+    .panel-bg{background:rgba(30,41,59,.88);backdrop-filter:blur(10px);border:1px solid #334155}
+    .btn-disease{background:#7f1d1d;color:white;transition:.2s}.btn-disease:hover{background:#991b1b}
+    .btn-heal{background:#14532d;color:white;transition:.2s}.btn-heal:hover{background:#166534;transform:translateY(-1px)}
+    .btn-heal.primary{background:#0f766e}.btn-heal.primary:hover{background:#0d9488}
+    .badge{border:1px solid #475569;background:#1e293b;border-radius:999px;padding:2px 8px;font-size:11px;color:#cbd5e1}
+  </style>
+</head>
+<body class="flex h-screen w-screen p-4 gap-4 box-border">
+  <div class="w-1/3 p-5 flex flex-col gap-4 z-10 panel-bg shadow-xl rounded-xl h-full overflow-y-auto">
+    <div>
+      <h1 class="text-xl font-bold text-cyan-400 mb-1">☯️ 처방 연동 텐세그리티 엔진</h1>
+      <p class="text-xs text-slate-400">선택 처방 → 병기 패턴 자동 적용 → 침구 후보 클릭 시 평형 복원 시각화</p>
+    </div>
+
+    <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <h2 class="text-md font-semibold text-slate-200">📌 현재 처방 패턴</h2>
+        <span id="formulaName" class="badge"></span>
+      </div>
+      <p id="patternText" class="text-sm text-amber-200 leading-relaxed"></p>
+      <p id="modelNote" class="text-xs text-slate-400 mt-2 leading-relaxed"></p>
+    </div>
+
+    <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+      <h2 class="text-md font-semibold mb-2 text-slate-200">📊 실시간 평형 상태</h2>
+      <div class="flex justify-between items-center mb-1"><span class="text-slate-400 text-sm">벡터 합력</span><span id="vectorSum" class="font-mono text-cyan-300 font-bold text-sm">{ 0.00, 0.00 }</span></div>
+      <div class="flex justify-between items-center mb-1"><span class="text-slate-400 text-sm">긴장도</span><span id="tensionValue" class="font-mono text-amber-300 text-sm">0.00</span></div>
+      <div class="flex justify-between items-center"><span class="text-slate-400 text-sm">상태</span><span id="healthStatus" class="px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300">무극</span></div>
+    </div>
+
+    <div>
+      <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-red-400">🔥 병리 입력</h2>
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="applyPathology('heart')" class="btn-disease py-2 rounded shadow text-sm">심화/불면</button>
+        <button onclick="applyPathology('liver')" class="btn-disease py-2 rounded shadow text-sm">간기울결</button>
+        <button onclick="applyPathology('spleen')" class="btn-disease py-2 rounded shadow text-sm">비위허약/식체</button>
+        <button onclick="applyPathology('kidney')" class="btn-disease py-2 rounded shadow text-sm">신허/하초</button>
+      </div>
+      <button onclick="applyFormulaPattern()" class="mt-2 w-full bg-amber-700 hover:bg-amber-600 py-2 rounded font-bold text-sm">현재 처방 병기 다시 적용</button>
+    </div>
+
+    <div>
+      <h2 class="text-md font-semibold mb-2 border-b border-slate-700 pb-1 text-green-400">🌿 처방 연동 침구 보조 후보</h2>
+      <div id="acuButtons" class="grid grid-cols-2 gap-2"></div>
+      <div id="acuDetail" class="mt-3 text-xs bg-slate-900/70 border border-slate-700 rounded-lg p-3 leading-relaxed text-slate-300">버튼을 누르면 해당 혈위가 어느 장부·축을 복원하는지 표시됩니다.</div>
+    </div>
+
+    <button onclick="resetSystem()" class="mt-auto bg-slate-700 hover:bg-slate-600 py-2 rounded font-bold text-slate-200 transition text-sm">↻ 완전 초기화</button>
+  </div>
+
+  <div class="w-2/3 h-full relative flex justify-center items-center">
+    <canvas id="tensegrityCanvas"></canvas>
+  </div>
+
+<script>
+const prescription = __PRESCRIPTION_JSON__;
+const candidates = __CANDIDATES_JSON__;
+const canvas = document.getElementById('tensegrityCanvas');
+const ctx = canvas.getContext('2d');
+const size = 820;
+canvas.width = size; canvas.height = size;
+const cx = size/2, cy = size/2, scale = 150;
+const u = Math.SQRT2 - 1, r2 = Math.SQRT2;
+
+const baseNodes = [
+  {x:0, y:0, label:'단전(비위)', id:'spleen'},
+  {x:0, y:-r2, label:'심(心)', id:'heart'},
+  {x:0, y:r2, label:'신(腎)', id:'kidney'},
+  {x:r2, y:0, label:'폐(肺)', id:'lung'},
+  {x:-r2, y:0, label:'간(肝)', id:'liver'},
+  {x:u, y:-u, label:'', id:'ne'},
+  {x:-u, y:-u, label:'', id:'nw'},
+  {x:u, y:u, label:'', id:'se'},
+  {x:-u, y:u, label:'', id:'sw'}
+];
+let nodes = baseNodes.map(n => ({...n, cx:n.x, cy:n.y, tx:n.x, ty:n.y, pulse:0}));
+const edges = [[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[1,5],[5,3],[3,7],[7,2],[2,8],[8,4],[4,6],[6,1],[1,3],[3,2],[2,4],[4,1]];
+const nodeIndex = Object.fromEntries(nodes.map((n,i)=>[n.id,i]));
+
+const acuTargetMap = {
+  'KI3':['kidney'], 'BL23':['kidney'], 'KI6':['kidney','heart'], 'KI7':['kidney'], 'CV4':['kidney','spleen'],
+  'BL18':['liver'], 'LR3':['liver'], 'GB34':['liver'],
+  'SP6':['spleen','kidney','liver'], 'ST36':['spleen'], 'CV6':['spleen','kidney'], 'CV12':['spleen'], 'BL20':['spleen'], 'SP3':['spleen'], 'SP9':['spleen','kidney'], 'ST25':['spleen'], 'ST40':['spleen','lung'], 'CV9':['spleen','kidney'], 'BL22':['spleen','kidney'],
+  'HT7':['heart'], 'PC6':['heart','spleen'], 'BL15':['heart'], 'Anmian':['heart'], 'GV20':['heart','spleen'],
+  'LU1':['lung'], 'LU9':['lung']
+};
+
+function setNodeTarget(id, dx, dy){
+  const i = nodeIndex[id]; if(i === undefined) return;
+  nodes[i].tx = baseNodes[i].x + dx; nodes[i].ty = baseNodes[i].y + dy;
+}
+function relaxNode(id, strength=0.88){
+  const i = nodeIndex[id]; if(i === undefined) return;
+  nodes[i].tx = nodes[i].tx + (baseNodes[i].x - nodes[i].tx)*strength;
+  nodes[i].ty = nodes[i].ty + (baseNodes[i].y - nodes[i].ty)*strength;
+  nodes[i].pulse = 1.0;
+}
+function applyFormulaPattern(){
+  resetTargetsOnly();
+  Object.entries(prescription.offsets || {}).forEach(([id, v]) => setNodeTarget(id, v.x || 0, v.y || 0));
+  document.getElementById('acuDetail').innerHTML = `<b>${prescription.formulaName}</b> 병기 패턴이 적용되었습니다.<br>${prescription.modelNote}`;
+}
+function resetTargetsOnly(){ nodes.forEach((n,i)=>{n.tx=baseNodes[i].x; n.ty=baseNodes[i].y;}); }
+function resetSystem(){ resetTargetsOnly(); nodes.forEach(n=>{n.pulse=0;}); document.getElementById('acuDetail').innerText='완전 초기화: 모든 노드가 기준 정적평형 위치로 복귀합니다.'; }
+function applyPathology(organ){
+  const intensity = 0.58;
+  if(organ==='heart') setNodeTarget('heart', 0.18, -intensity);
+  if(organ==='liver') setNodeTarget('liver', -intensity, -0.14);
+  if(organ==='kidney') setNodeTarget('kidney', -0.14, intensity);
+  if(organ==='spleen') setNodeTarget('spleen', 0.42, 0.35);
+}
+function applyTreatment(code){
+  const targets = acuTargetMap[code] || ['spleen'];
+  targets.forEach(t => relaxNode(t, code==='SP6' ? 0.96 : 0.86));
+  const c = candidates.find(x=>x.code===code) || {name:code, why:'', meaning:'', safety:''};
+  document.getElementById('acuDetail').innerHTML = `<b>${code} ${c.name}</b><br>복원축: ${targets.join(', ')}<br>임상 의미: ${c.meaning || '-'}<br>후보 근거: ${c.why || '-'}<br><span class="text-amber-200">안전 확인: ${c.safety || '환자 상태 확인'}</span>`;
+}
+function renderCandidates(){
+  document.getElementById('formulaName').innerText = prescription.formulaName || '선택 처방';
+  document.getElementById('patternText').innerText = prescription.pattern || '';
+  document.getElementById('modelNote').innerText = prescription.modelNote || '';
+  const box = document.getElementById('acuButtons');
+  box.innerHTML = '';
+  candidates.forEach((c, idx)=>{
+    const btn = document.createElement('button');
+    btn.className = 'btn-heal py-2 px-2 rounded shadow text-sm text-left ' + (idx < 2 ? 'primary' : '');
+    btn.innerHTML = `<span class="text-xs opacity-80">추천 ${idx+1} · ${c.organ}</span><br><b>${c.code} ${c.name}</b>`;
+    btn.onclick = () => applyTreatment(c.code);
+    box.appendChild(btn);
+  });
+}
+function updatePhysics(){
+  let sx=0, sy=0, tensionSum=0;
+  nodes.forEach(n=>{
+    n.cx += (n.tx-n.cx)*0.055; n.cy += (n.ty-n.cy)*0.055;
+    sx += (n.cx-n.x); sy += (n.cy-n.y);
+    n.pulse *= 0.94;
+  });
+  edges.forEach(([i,j])=>{
+    const a=nodes[i], b=nodes[j], ba=baseNodes[i], bb=baseNodes[j];
+    const baseLen=Math.hypot(ba.x-bb.x, ba.y-bb.y);
+    const curLen=Math.hypot(a.cx-b.cx, a.cy-b.cy);
+    tensionSum += Math.abs(curLen-baseLen);
+  });
+  const mag=Math.hypot(sx,sy);
+  document.getElementById('vectorSum').innerText = `{ ${sx.toFixed(2)}, ${sy.toFixed(2)} }`;
+  document.getElementById('tensionValue').innerText = tensionSum.toFixed(2);
+  const status=document.getElementById('healthStatus');
+  if(mag < 0.05 && tensionSum < 0.25){ status.innerText='무극 (정적평형)'; status.className='px-2 py-1 rounded text-xs font-bold bg-green-900 text-green-300'; }
+  else if(mag < 0.35){ status.innerText='회복 중'; status.className='px-2 py-1 rounded text-xs font-bold bg-amber-900 text-amber-200'; }
+  else { status.innerText='병리 (불균형)'; status.className='px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-300'; }
+}
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  edges.forEach(([i,j])=>{
+    const n1=nodes[i], n2=nodes[j], b1=baseNodes[i], b2=baseNodes[j];
+    const baseLen=Math.hypot(b1.x-b2.x,b1.y-b2.y), curLen=Math.hypot(n1.cx-n2.cx,n1.cy-n2.cy);
+    const t=Math.abs(curLen-baseLen);
+    ctx.beginPath(); ctx.moveTo(cx+n1.cx*scale, cy+n1.cy*scale); ctx.lineTo(cx+n2.cx*scale, cy+n2.cy*scale);
+    if(t>0.10){ ctx.strokeStyle=`rgba(239,68,68,${Math.min(.95,.35+t)})`; ctx.lineWidth=2+t*6; }
+    else { ctx.strokeStyle='rgba(6,182,212,.32)'; ctx.lineWidth=2; }
+    ctx.stroke();
+  });
+  nodes.forEach(n=>{
+    const px=cx+n.cx*scale, py=cy+n.cy*scale, dist=Math.hypot(n.cx-n.x,n.cy-n.y);
+    ctx.beginPath(); ctx.arc(px,py, 8 + dist*7 + n.pulse*7, 0, Math.PI*2);
+    ctx.fillStyle = n.pulse>0.05 ? '#22c55e' : (dist>0.10 ? '#ef4444' : '#06b6d4'); ctx.fill();
+    ctx.strokeStyle='#0f172a'; ctx.lineWidth=2; ctx.stroke();
+    if(n.label){ ctx.fillStyle='#cbd5e1'; ctx.font='16px Pretendard, Arial'; ctx.textAlign='center'; ctx.fillText(n.label, px, py-18); }
+  });
+}
+function loop(){ updatePhysics(); draw(); requestAnimationFrame(loop); }
+renderCandidates(); applyFormulaPattern(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
+"""
+    return (
+        template
+        .replace("__PRESCRIPTION_JSON__", json.dumps(payload, ensure_ascii=False))
+        .replace("__CANDIDATES_JSON__", json.dumps(candidates, ensure_ascii=False))
+    )
+
+
+
+# ---------------- 14번: 플라토닉 솔리드 환론·오행 다면체 모델 ----------------
+PLATONIC_CYCLE_ROWS = [
+    {"순환 단계":"1", "다면체":"정12면체", "기하학적 의미":"12면·전체 순환·외곽 총괄장", "한의학 연결":"12경락·전신 기혈 순환의 시각화", "처방 방향":"전체 경락 순환을 회복시키는 완충·조화층", "주의":"고전 원문이 정12면체를 말한다는 뜻이 아니라 12경락 구조를 설명하는 정보기하학 모델"},
+    {"순환 단계":"2", "다면체":"정6면체", "기하학적 의미":"안정된 형체·축·토대", "한의학 연결":"토·비위·중초·형체 안정", "처방 방향":"보기·건비·중초 안정·영양 생성", "주의":"비위와 형체 안정의 기능적 배속"},
+    {"순환 단계":"3", "다면체":"정4면체", "기하학적 의미":"최소 입체·전환 단위", "한의학 연결":"표리·한열·허실·음양의 최소 변증 전환", "처방 방향":"병기가 어느 쪽으로 치우쳤는지 판별하는 분기점", "주의":"실제 장부 형상이 아니라 변증 분기의 도식"},
+    {"순환 단계":"4", "다면체":"정8면체", "기하학적 의미":"상하좌우 방향축·쌍대 조절", "한의학 연결":"승강출입·기기 조절·표리 왕래", "처방 방향":"소통·전환·승강 조절·흉협/중초/표리의 방향 보정", "주의":"방향 벡터 설명층"},
+    {"순환 단계":"5", "다면체":"정20면체", "기하학적 의미":"유동성·세밀한 분포·진동성", "한의학 연결":"수·신·진액·수습·기혈 유동", "처방 방향":"이수·화담·자음·진액 조절", "주의":"진액과 수습의 흐름을 설명하는 은유적 모델"},
+    {"순환 단계":"회귀", "다면체":"정12면체", "기하학적 의미":"다시 전체 순환으로 귀환", "한의학 연결":"처방·침구 후 전신 경락 질서의 재정렬", "처방 방향":"정적평형으로 복귀", "주의":"치료 효과 보장이 아니라 설명 보조"},
+]
+
+PLATONIC_OHANG_ROWS = [
+    {"오행":"목", "오장":"간", "기능축":"소통·발산·조달", "다면체 해석":"정8면체/정12면체의 방향 전환과 전체 순환층", "대표 병기":"간울, 흉협불편, 정서 긴장", "대표 처방 예":"소요산, 가미소요산, 소시호탕"},
+    {"오행":"화", "오장":"심", "기능축":"상부 열·신명·안신", "다면체 해석":"정4면체의 한열 분기와 중심 불안정", "대표 병기":"심번, 불면, 심계, 상열", "대표 처방 예":"산조인탕, 천왕보심단, 황련해독탕"},
+    {"오행":"토", "오장":"비", "기능축":"중초·운화·형체 안정", "다면체 해석":"정6면체의 안정 구조와 중초 중심", "대표 병기":"비위허약, 식체, 심하비, 습탁", "대표 처방 예":"반하사심탕, 평위산, 보중익기탕, 소건중탕"},
+    {"오행":"금", "오장":"폐", "기능축":"숙강·표리·호흡·방어", "다면체 해석":"정8면체의 출입·표리 조절축", "대표 병기":"외감, 해수, 표증, 흉민", "대표 처방 예":"계지탕, 마황탕, 갈근탕, 곽향정기산"},
+    {"오행":"수", "오장":"신", "기능축":"저장·하초·진액·수분대사", "다면체 해석":"정20면체의 유동성·수습·진액 분포", "대표 병기":"신허, 부종, 소변불리, 음허/양허", "대표 처방 예":"육미지황환, 팔미지황환, 오령산, 진무탕"},
+]
+
+HUANGDI_DONGUI_HWANRON_ROWS = [
+    {"층":"황제내경", "개념":"음양", "환론 해석":"다면체 순환에서 한쪽 편향이 생기면 중심 정적평형이 무너진다.", "임상 적용":"한열·허실·상하·표리의 치우침을 먼저 확인"},
+    {"층":"황제내경", "개념":"오행·오장", "환론 해석":"5개 정다면체를 오행·오장 기능축의 설명 모델로 사용한다.", "임상 적용":"간·심·비·폐·신 중 어느 기능축이 처방 선택의 중심인지 표시"},
+    {"층":"황제내경", "개념":"승강출입", "환론 해석":"정8면체와 하이퍼큐브 축을 통해 기기의 방향성 변화를 시각화한다.", "임상 적용":"구역·기체·흉민·하함·상역 같은 방향성 병기를 설명"},
+    {"층":"황제내경", "개념":"경맥", "환론 해석":"정12면체를 12경락 전체 순환의 시각화 층으로 둔다.", "임상 적용":"처방 방향과 경락 후보가 같은 방향을 향하는지 확인"},
+    {"층":"동의보감", "개념":"내경편: 신형·정·기·신", "환론 해석":"정적평형은 몸의 형체, 정혈, 기, 신이 한쪽으로 치우치지 않는 상태로 해석한다.", "임상 적용":"허로·피로·수면·정서·하초 허약을 통합적으로 설명"},
+    {"층":"동의보감", "개념":"오장육부·내상", "환론 해석":"정6면체 중초 안정층은 비위 운화와 내상 병기를 설명하는 축이다.", "임상 적용":"식체·심하비·복부팽만·설사·구역의 감별"},
+    {"층":"동의보감", "개념":"담음·수습·부종", "환론 해석":"정20면체 유동층은 진액·수습·담음의 분포 변화를 설명한다.", "임상 적용":"이진탕·오령산·진무탕·반하백출천마탕 방향 설명"},
+    {"층":"환론", "개념":"무오차율 순환", "환론 해석":"플라토닉 도면의 같은 중심·중점·길이·대칭을 처방 설명용 정적평형 모델로 사용한다.", "임상 적용":"자동진단이 아니라 병기·처방·침구 방향을 환자에게 설명하는 교육/상담 보조"},
+]
+
+def platonic_formula_rows() -> List[Dict[str, str]]:
+    axes = set(formula.get("처방 방향축", []))
+    rows: List[Dict[str, str]] = []
+    rule_rows = [
+        ("보충축", "정6면체", "토대·중초·형체 안정", "허약·기혈부족·비위저하를 안정 구조로 보강"),
+        ("수렴·안정축", "정12면체", "전체 순환의 회수·중심 귀환", "흩어진 기운·불면·도한·심계를 중심으로 모음"),
+        ("승양·상승축", "정8면체", "상하 방향축", "처진 기운을 위로 들어 올리고 승강을 조절"),
+        ("배출·이수축", "정20면체", "수습·진액의 유동층", "담음·부종·소변불리·수습 정체를 밖으로 움직임"),
+        ("소통·전환축", "정8면체", "방향 전환·표리 왕래", "기체·흉협·심하비·구역·상역을 방향성으로 조정"),
+        ("완충·조화축", "정12면체", "전체 경락 조화층", "보사·한열·허실의 치우침을 조화"),
     ]
-)
+    for axis, solid, geom, interp in rule_rows:
+        if axis in axes:
+            rows.append({"현재 처방축":axis, "연결 다면체":solid, "기하학적 해석":geom, "처방 해석":interp})
+    if not rows:
+        rows.append({"현재 처방축":"보조 확인", "연결 다면체":"정12면체", "기하학적 해석":"전체 순환층", "처방 해석":"선택 처방의 핵심 방향축을 확인한 뒤 연결"})
+    return rows
 
+def platonic_chart_text() -> str:
+    linked = "; ".join([f"{r['현재 처방축']}→{r['연결 다면체']}" for r in platonic_formula_rows()])
+    return f"""[플라토닉 솔리드 무오차율 순환 주석]
+선택 처방: {formula_name}
+처방 변증: {formula['전통 변증']}
+처방 방향축: {', '.join(formula['처방 방향축'])}
+다면체 연결: {linked}
+
+해석:
+플라토닉 도면은 정12면체→정6면체→정4면체→정8면체→정20면체→정12면체로 회귀하는 정적평형 순환 모델로 사용한다. 이 모델은 한의학의 오행·오장·경락·승강출입·처방 방향을 설명하기 위한 정보기하학적 주석층이다.
+
+황제내경 연결:
+음양, 오행·오장, 승강출입, 경맥 개념을 다면체의 중심·축·순환·쌍대성으로 시각화한다.
+
+동의보감 연결:
+신형·정·기·신, 오장육부, 내상, 담음·수습, 허로 편제를 처방 방향과 연결해 환자 설명문과 차트 주석에 활용한다.
+
+임상 안전 문구:
+이 주석은 자동진단, 자동처방, 치료효과 보장, 고전 원문의 물리학적 증명을 뜻하지 않는다. 실제 처방·침구·뜸 여부는 면허가 있는 한의사가 문진·맥진·설진·복진·검사값·복용약을 종합해 결정한다.
+"""
+
+# ---------------- 15번: 황금비 다면체 기하학 임상 데이터 ----------------
+GOLDEN_RATIO_TKM_ROWS = [
+    {"기하학 요소": "꼭짓점 (Vertices)", "수학적 의미": "장력이 교차·수렴·발산하는 0차원 노드", "한의 임상 접점": "경혈(Acupoints): 에너지가 표면에 드러나 자극을 받는 지점", "임상 활용": "원위취혈, 오수혈 타겟팅 알고리즘 기초"},
+    {"기하학 요소": "모서리 (Edges)", "수학적 의미": "노드를 연결하여 힘을 전달하는 1차원 텐션 선분", "한의 임상 접점": "경락(Meridians): 기혈 순환의 채널이자 생체 텐세그리티 장력선", "임상 활용": "특정 경락의 허실(장력의 붕괴)에 따른 보사(補瀉) 방향성 결정"},
+    {"기하학 요소": "정10각형 2D 투영 (Decagon)", "수학적 의미": "5회전 대칭 Z축 정투영으로 생성된 마스터 궤도 평면", "한의 임상 접점": "십간(十干): 오행(木火土金水)의 음양 분화 궤도의 시각적 발현", "임상 활용": "장부의 에너지를 10방위 궤도에 매핑하여 특정 방위의 편향 진단(레이더 차트)"},
+    {"기하학 요소": "면적과 길이의 비 (Area/Length Ratio)", "수학적 의미": "황금비(Φ)의 거듭제곱으로 나타나는 정량적 스케일", "한의 임상 접점": "장부의 기운 총량(Capacity)과 처방 약재의 구성비", "임상 활용": "황금비 환산율을 통한 군신좌사(君臣佐使) 정밀 약재 용량(g) 산출 보조"},
+    {"기하학 요소": "동적 평형 (Sum = {0,0})", "수학적 의미": "모든 벡터의 합력이 0이 되는 안정 록인(Lock-in) 상태", "한의 임상 접점": "음평양비(陰平陽秘) 및 항상성: 인체의 완벽한 건강 상태 영점(Zero-point)", "임상 활용": "병리적 벡터 쏠림을 0으로 상쇄하는 역벡터(처방/침) 시뮬레이션 계산"},
+]
+
+DECAGON_STEMS_ROWS = [
+    {"정10각형 방위": "0° / 360°", "십간(十干) 매핑": "갑 (甲)", "오행": "목(木)", "상태": "간(肝) 양기 발산"},
+    {"정10각형 방위": "36°", "십간(十干) 매핑": "을 (乙)", "오행": "목(木)", "상태": "간(肝) 음기 조달"},
+    {"정10각형 방위": "72°", "십간(十干) 매핑": "병 (丙)", "오행": "화(火)", "상태": "심(心) 양기 발산"},
+    {"정10각형 방위": "108°", "십간(十干) 매핑": "정 (丁)", "오행": "화(火)", "상태": "심(心) 음기 수렴"},
+    {"정10각형 방위": "144°", "십간(十干) 매핑": "무 (戊)", "오행": "토(土)", "상태": "비(脾) 양기 운화"},
+    {"정10각형 방위": "180°", "십간(十干) 매핑": "기 (己)", "오행": "토(土)", "상태": "비(脾) 음기 저장"},
+    {"정10각형 방위": "216°", "십간(十干) 매핑": "경 (庚)", "오행": "금(金)", "상태": "폐(肺) 양기 숙강"},
+    {"정10각형 방위": "252°", "십간(十干) 매핑": "신 (辛)", "오행": "금(金)", "상태": "폐(肺) 음기 수렴"},
+    {"정10각형 방위": "288°", "십간(十干) 매핑": "임 (壬)", "오행": "수(水)", "상태": "신(腎) 양기 기화"},
+    {"정10각형 방위": "324°", "십간(十干) 매핑": "계 (癸)", "오행": "수(水)", "상태": "신(腎) 음기 저장"},
+]
+
+def golden_geometry_chart_text() -> str:
+    axes = ", ".join(formula['처방 방향축'])
+    return f"""[황금비 다면체 기하학·텐세그리티 임상 주석]
+선택 처방: {formula_name}
+처방 변증: {formula['전통 변증']}
+해당 역벡터(처방 방향축): {axes}
+
+기하학적 해석:
+현재 환자의 상태는 10각형 마스터 궤도(십간 궤도) 상에서 합력 {{0,0}}이 무너진 비대칭 쏠림(Pathological Vector) 상태입니다. 
+선택된 처방 '{formula_name}'은(는) 무너진 장력을 회복하기 위해 '{axes}' 방향으로 작용하는 수학적 카운터-벡터(Counter-Vector)로 설계되었습니다.
+
+임상 적용 (CDSS 모델링):
+1. 처방을 구성하는 약재의 비율은 황금비(Φ) 면적비 모델을 기반으로 장부의 편차를 채우도록 설정됩니다.
+2. 선택된 침구 핵심 혈위 {formula['핵심 혈위']}는 3D 다면체의 텐션이 2D 평면에 맺히는 꼭짓점(Node)으로서, 해당 궤도의 장력을 물리적으로 조율합니다.
+3. 최종 목표는 환자의 생체 에너지 장을 음평양비(陰平陽秘), 즉 다면체 벡터 총합 {{0,0}}의 완벽한 정적 평형 상태로 회복시키는 것입니다.
+
+안전성 주의:
+본 기하학 맵핑 데이터는 한의학의 추상적 변증을 정량화된 수치 기하학으로 치환하여 설명하는 차세대 임상 의사결정 지원(CDSS) 연구 모델입니다. 실제 자침과 처방 용량은 반드시 한의사가 환자의 임상 지표를 바탕으로 최종 결정해야 합니다.
+"""
+
+
+# ---------------- 화면 ----------------
+safety = safety_rows()
+st.title("🟣 한의사용 처방·침구·뜸 보조 대시보드")
+st.caption("교육·연구·임상 설명 보조용입니다. 자동 진단, 자동 처방, 자동 침구 시술 지시가 아닙니다.")
+st.success(f"현재 처방 방향: {formula['처방 방향']}")
+
+tabs = st.tabs([
+    "1. 통합 요약", "2. 차트 소견서", "3. 361 경혈 DB", "4. 침구·혈위 후보", 
+    "5. 뜸 주의", "6. 진맥·설진·복진 대조", "7. 처방 방향 6축·감별", 
+    "8. 황제내경·동의보감·상한론", "9. 전통 처방 Core", "10. 안전성 확인", 
+    "11. 환자 설명문", "12. 연구자용 Q6/H(3,4)", "13. 텐세그리티 역학 엔진",
+    "14. 플라토닉 환론·오행 다면체", "15. 황금비 다면체 기하학"
+])
 
 with tabs[0]:
-    st.header("1. 황금비·주기·위상 수학 검증")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("φ", f"{PHI:.12f}")
-    c2.metric("φ⁻¹", f"{1 / PHI:.12f}")
-    c3.metric("φ⁻³", f"{PHI ** -3:.12f}")
-    c4.metric("정10각 회전", "36°")
-
-    st.subheader("기호 연산 결과")
-    st.dataframe(exact_symbolic_checks(), use_container_width=True, hide_index=True)
-
-    st.subheader("다면체 위상 검증")
-    st.dataframe(solid_summary, use_container_width=True, hide_index=True)
-    if bool((solid_summary["오일러 V-E+F"] == 2).all()):
-        st.success("표에 포함된 모든 볼록 다면체가 오일러 관계 V-E+F=2를 만족합니다.")
-    else:
-        st.error("일부 다면체 위상 수를 재검토해야 합니다.")
-
-    st.info(
-        "여기서 '오차율 0%'라고 말할 수 있는 범위는 기호 항등식과 조합적 위상 수입니다. "
-        "Plotly 좌표와 화면 렌더링은 부동소수점 근사입니다."
-    )
-
+    st.header("1. 통합 요약")
+    box("info","한의사가 바쁜 진료 환경에서 가장 먼저 확인해야 할 핵심 정보입니다. 자동 확정이 아니라 검토 순서를 정리합니다.")
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("선택 처방", formula_name); c2.metric("핵심 후보 혈위", f"{len(formula['핵심 혈위'])}개"); c3.metric("안전 확인", f"{len([r for r in safety if r['우선순위'] in {'높음','중간'}])}건"); c4.metric("361 DB","361개")
+    a,b=st.columns(2)
+    with a:
+        st.subheader("✅ 처방이 잘 맞는 환자상"); st.write(formula["잘 맞는 환자상"])
+        st.subheader("🔁 감별 및 가감 방향"); st.write(f"유사 처방 감별: {formula['감별 처방']}"); st.write(f"가감 조정: {formula['가감 방향']}")
+    with b:
+        st.subheader("⚠️ 주의하거나 재검토할 환자상"); st.write(formula["주의 환자상"])
+        st.markdown("**현재 입력에서 잡힌 안전 신호**"); show_df(safety)
+    st.subheader("핵심 혈위 요약"); show_df(pd.DataFrame(candidate_rows())[["code","혈명","경락","처방 방향축","임상 의미","왜 후보인가"]])
 
 with tabs[1]:
-    st.header("2. 3D 다면체와 정사영")
-    solid_name = st.selectbox("다면체", list(solids.keys()), index=0)
-    data = solids[solid_name]
-    points = np.asarray(data["vertices"], dtype=float)
-    edges = list(data["edges"])
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("꼭짓점 V", len(points))
-    c2.metric("모서리 E", len(edges))
-    c3.metric("면 F", int(data["faces"]))
-
-    left, right = st.columns(2)
-    with left:
-        labels = MERIDIANS_12 if solid_name == "정20면체" else None
-        st.plotly_chart(polyhedron_figure(solid_name, points, edges, labels), use_container_width=True)
-    with right:
-        st.plotly_chart(projection_figure(points, edges, projection_rotation), use_container_width=True)
-
-    st.caption(
-        "정20면체의 12꼭짓점에 12경맥 이름을 붙이는 것은 상징적 라벨링입니다. "
-        "라벨 순서는 해부학적·임상적 표준 배치를 의미하지 않습니다."
-    )
-
-    coord_df = pd.DataFrame(points, columns=["x", "y", "z"])
-    coord_df.insert(0, "vertex", [f"v{i}" for i in range(len(points))])
-    st.download_button(
-        "현재 다면체 좌표 CSV 다운로드",
-        coord_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"{solid_name}_vertices.csv",
-        mime="text/csv",
-    )
-
+    st.header("2. 차트용 압축 소견서")
+    box("warn","EMR 차트에 복사해 넣기 좋은 압축 초안입니다. 자동 확정 처방이 아니므로 한의사가 직접 검토·수정하십시오.")
+    note=chart_note()
+    st.text_area("소견서 텍스트", note, height=430)
+    st.download_button("차트 소견서 다운로드", data=note, file_name=f"{formula_name}_chart_note.txt", mime="text/plain")
+    st.subheader("차트형 핵심 체크")
+    show_small([{"항목":"변증 방향","내용":formula["전통 변증"]},{"항목":"처방 방향","내용":formula["처방 방향"]},{"항목":"핵심 혈위","내용":", ".join([f"{c} {acu(c)['혈명']}" for c in formula["핵심 혈위"]])},{"항목":"뜸 기준","내용":f"{formula['뜸 가능 조건']} / {formula['뜸 주의 조건']}"},{"항목":"안전 신호","내용":safety_summary(safety)}])
 
 with tabs[2]:
-    st.header("3. 정10각형 위상·합성 벡터·역벡터")
-    st.markdown(
-        "각 위상에 사용자가 정한 가중치를 놓고 합성 벡터를 계산합니다. "
-        "역벡터는 수학적으로 정확하지만, 특정 약재·혈위가 그 역벡터를 갖는다는 것은 별도 임상 검증이 필요합니다."
-    )
-
-    weights: List[float] = []
-    cols = st.columns(5)
-    for i in range(10):
-        with cols[i % 5]:
-            weights.append(
-                st.slider(
-                    f"{TEN_STEMS[i]} · {FIVE_PHASES[i]}({YIN_YANG[i]})",
-                    min_value=-5.0,
-                    max_value=5.0,
-                    value=0.0,
-                    step=0.1,
-                    key=f"phase_weight_{i}",
-                )
-            )
-
-    state = phase_vector(weights, phase_offset)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("합성 반경 r", f"{state.radius:.6f}")
-    c2.metric("위상 θ", f"{state.theta_deg:.2f}°")
-    c3.metric("기하 중심성", f"{state.balance_index:.2f}/100")
-    c4.metric("역위상", f"{state.opposite_theta_deg:.2f}°")
-
-    st.plotly_chart(decagon_vector_figure(weights, state, phase_offset), use_container_width=True)
-
-    nearest = state.nearest_phase_index
-    opposite = state.opposite_phase_index
-    result_rows = [
-        {"항목": "합성 벡터", "값": f"({state.x:.8f}, {state.y:.8f})"},
-        {"항목": "수학적 역벡터", "값": f"({state.opposite_x:.8f}, {state.opposite_y:.8f})"},
-        {"항목": "가장 가까운 상징 위상", "값": f"{TEN_STEMS[nearest]} · {FIVE_PHASES[nearest]}({YIN_YANG[nearest]})"},
-        {"항목": "반대편 상징 위상", "값": f"{TEN_STEMS[opposite]} · {FIVE_PHASES[opposite]}({YIN_YANG[opposite]})"},
-    ]
-    st.dataframe(pd.DataFrame(result_rows), use_container_width=True, hide_index=True)
-
-    st.warning(
-        "기하 중심성은 입력 가중치가 원점에 얼마나 가까운지를 나타내는 앱 내부 지표일 뿐, "
-        "건강·질병 중증도·치료 반응 점수가 아닙니다."
-    )
-
+    st.header("3. 361 표준 경혈 DB")
+    box("info","전체 DB는 기본적으로 접어 두고, 현재 처방과 관련 높은 핵심 후보 혈위를 먼저 보여줍니다.")
+    st.subheader("현재 처방 핵심 후보 먼저 보기")
+    show_df(pd.DataFrame(candidate_rows())[["code","혈명","standard_name","경락","처방 방향축","임상 의미","왜 후보인가","주의점"]])
+    with st.expander("전체 361 경혈 DB 열기 / 검색", expanded=False):
+        acu_df=pd.DataFrame(ACUPOINT_361)
+        c1,c2,c3=st.columns(3)
+        mf=c1.multiselect("경락 필터", sorted(acu_df["경락"].unique()))
+        af=c2.multiselect("처방 방향축 필터", ["보충축","수렴·안정축","승양·상승축","배출·이수축","소통·전환축","완충·조화축"])
+        sr=c3.text_input("경혈 검색", placeholder="예: KI3, 태계, Taixi")
+        f=acu_df.copy()
+        if mf: f=f[f["경락"].isin(mf)]
+        if af:
+            mask=pd.Series(False,index=f.index)
+            for x in af: mask = mask | f["처방 방향축"].str.contains(x, na=False)
+            f=f[mask]
+        if sr:
+            mask=pd.Series(False,index=f.index)
+            for col in f.columns: mask = mask | f[col].astype(str).str.lower().str.contains(sr.lower(), na=False)
+            f=f[mask]
+        st.caption(f"표시: {len(f)} / 전체 361개")
+        show_df(f, height=420)
+        st.download_button("361 경혈 DB CSV 다운로드", data=f.to_csv(index=False).encode("utf-8-sig"), file_name="acupoint_361_db.csv", mime="text/csv")
 
 with tabs[3]:
-    st.header("4. 정20면체 12노드와 12경맥의 상징적 네트워크")
-    ico_points = np.asarray(solids["정20면체"]["vertices"], dtype=float)
-    ico_edges = list(solids["정20면체"]["edges"])
-    adjacency = adjacency_list(len(ico_points), ico_edges)
-
-    selected_node = st.selectbox(
-        "연구상 교란 노드",
-        range(12),
-        format_func=lambda i: f"v{i} · {MERIDIANS_12[i]}",
-    )
-    distances = shortest_path_distances(selected_node, adjacency)
-    anti = antipodal_vertex(ico_points, selected_node)
-
-    network_df = pd.DataFrame(
-        [
-            {
-                "vertex": f"v{i}",
-                "상징 경맥 라벨": MERIDIANS_12[i],
-                "좌표": tuple(np.round(ico_points[i], 8)),
-                "인접 노드": ", ".join(f"v{j}" for j in adjacency[i]),
-                "선택 노드에서 그래프 거리": distances[i],
-                "기하학적 대척점": "예" if i == anti else "",
-            }
-            for i in range(12)
-        ]
-    )
-
-    c1, c2 = st.columns([1.2, 1.0])
-    with c1:
-        st.plotly_chart(
-            polyhedron_figure("정20면체 12노드 네트워크", ico_points, ico_edges, MERIDIANS_12),
-            use_container_width=True,
-        )
-    with c2:
-        st.metric("선택 노드", f"v{selected_node}")
-        st.metric("상징 경맥", MERIDIANS_12[selected_node])
-        st.metric("기하학적 대척 노드", f"v{anti} · {MERIDIANS_12[anti]}")
-        st.markdown(
-            '<div class="hypothesis-box"><b>해석 경계</b><br>'
-            "대척 노드와 그래프 거리는 다면체 위상 계산입니다. 이를 원위취혈, 보사법, 실제 시술 위치로 "
-            "직결하려면 독립적인 임상시험과 안전성 검토가 필요합니다.</div>",
-            unsafe_allow_html=True,
-        )
-
-    st.dataframe(network_df, use_container_width=True, hide_index=True, height=430)
-
+    st.header("4. 침구·혈위 후보")
+    box("warn","아래 혈위는 자동 시술 지시가 아니라, 해당 처방의 변증 방향과 임상적으로 자주 연결되는 후보군을 근거와 함께 제시한 것입니다.")
+    show_df(candidate_rows())
+    for c in formula["핵심 혈위"]:
+        a=acu(c)
+        with st.expander(f"{c} {a['혈명']} — 왜 이 혈위인가", expanded=(c==formula["핵심 혈위"][0])):
+            st.markdown(f"**경락:** {a['경락']} / **표준명:** {a['standard_name']}")
+            st.markdown(f"**임상 의미:** {a['임상 의미']}")
+            st.markdown(f"**후보 근거:** {a['왜 후보인가']}")
+            st.markdown(f"**자침·안전:** {a['주의점']}")
+    st.subheader("침구 시 확인할 임상 포인트")
+    st.markdown("- 처방 방향과 침구 자극 방향이 서로 충돌하지 않는지 확인\n- 허증 환자에게 과도한 사법·강자극을 쓰지 않도록 주의\n- 실열·상열감 환자에게 승양·온보 자극이 과하지 않은지 확인\n- 복부 냉감, 더부룩함, 압통, 흉협고만은 복진과 함께 판단")
 
 with tabs[4]:
-    st.header("5. 사용자 정의 후보 벡터 비교")
-    st.markdown(
-        "약재·혈위·처방을 앱이 임의로 좌표화하지 않습니다. 연구자가 외부 근거와 사전등록 규칙에 따라 만든 "
-        "후보 CSV를 넣으면, **기하학적 정합도만** 계산합니다."
-    )
-
-    template = candidate_template()
-    st.download_button(
-        "후보 CSV 템플릿 다운로드",
-        template.to_csv(index=False).encode("utf-8-sig"),
-        file_name="candidate_vector_template.csv",
-        mime="text/csv",
-    )
-
-    uploaded = st.file_uploader("후보 벡터 CSV", type=["csv"])
-    candidate_df = template
-    if uploaded is not None:
-        try:
-            candidate_df = validate_candidate_df(pd.read_csv(uploaded))
-            st.success(f"후보 {len(candidate_df)}개를 불러왔습니다.")
-        except Exception as exc:
-            st.error(str(exc))
-            candidate_df = template
-
-    current_weights = [float(st.session_state.get(f"phase_weight_{i}", 0.0)) for i in range(10)]
-    current_state = phase_vector(current_weights, phase_offset)
-    ranked = rank_candidates(candidate_df, current_state.opposite_x, current_state.opposite_y)
-
-    st.dataframe(
-        ranked,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "theta_deg": st.column_config.NumberColumn(format="%.2f°"),
-            "magnitude": st.column_config.NumberColumn(format="%.4f"),
-            "cosine_alignment": st.column_config.NumberColumn(format="%.6f"),
-            "residual_distance": st.column_config.NumberColumn(format="%.6f"),
-        },
-    )
-    st.warning(
-        "순위는 치료 우선순위가 아닙니다. 좌표와 크기가 연구자가 정의한 역벡터에 얼마나 가까운지만 보여줍니다."
-    )
-
+    st.header("5. 뜸 치료 가능 여부 및 주의 조건")
+    box("error","뜸은 화상, 감염, 피부 자극 위험이 있으므로 감각저하, 당뇨성 말초신경병증, 실열·상열, 임신, 피부질환을 반드시 확인해야 합니다.")
+    st.subheader("처방별 뜸 조건: 가능/주의/강도")
+    show_small([{"항목":"가능 조건","내용":formula["뜸 가능 조건"]},{"항목":"주의 조건","내용":formula["뜸 주의 조건"]},{"항목":"권장 강도","내용":formula["권장 강도"]}])
+    st.subheader("핵심 혈위별 뜸 검토"); show_df(moxa_rows())
+    st.subheader("강도 기준")
+    show_small([{"강도":"보류","의미":"열감·염증·감각저하·임신 등 위험 신호가 있거나 처방 방향상 뜸 필요성이 낮음"},{"강도":"약","의미":"짧고 약한 온열 자극만 검토. 환자 반응을 즉시 확인"},{"강도":"약~중","의미":"허한·냉감이 명확할 때 제한적으로 검토"},{"강도":"중","의미":"허한·원기 저하가 분명하고 금기 신호가 없을 때만 전문가 판단으로 검토"}])
 
 with tabs[5]:
-    st.header("6. 연구 기록 내보내기")
-    notes = st.text_area(
-        "관찰 메모",
-        placeholder="수학적 입력의 출처, 측정 장비, 전처리, 가중치 정의, 제외 기준 등을 기록하세요.",
-        height=180,
-    )
-
-    current_weights = [float(st.session_state.get(f"phase_weight_{i}", 0.0)) for i in range(10)]
-    current_state = phase_vector(current_weights, phase_offset)
-    report = research_report(case_id, notes, current_weights, current_state, solid_summary)
-    report_json = json.dumps(report, ensure_ascii=False, indent=2)
-
-    st.json(report)
-    st.download_button(
-        "연구 기록 JSON 다운로드",
-        report_json.encode("utf-8"),
-        file_name=f"{case_id}_polyhedral_research.json",
-        mime="application/json",
-    )
-
-    csv_record = pd.DataFrame(
-        [
-            {
-                "case_id": case_id,
-                "x": current_state.x,
-                "y": current_state.y,
-                "r": current_state.radius,
-                "theta_deg": current_state.theta_deg,
-                "opposite_x": current_state.opposite_x,
-                "opposite_y": current_state.opposite_y,
-                "opposite_theta_deg": current_state.opposite_theta_deg,
-                "geometric_centrality": current_state.balance_index,
-                **{f"weight_{TEN_STEMS[i]}": current_weights[i] for i in range(10)},
-            }
-        ]
-    )
-    st.download_button(
-        "분석 행 CSV 다운로드",
-        csv_record.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"{case_id}_vector_record.csv",
-        mime="text/csv",
-    )
-
+    st.header("6. 진맥·설진·복진 대조")
+    box("info","자동 판정이 아니라 선택 처방의 목표 소견과 실제 입력 소견을 대조하는 참고표입니다.")
+    show_small([{"항목":"맥상","입력":pulse or "미입력","처방 적합성 대조":"허맥·세맥은 보충축·수렴축과 잘 맞을 수 있음. 현맥은 소통축 검토."},{"항목":"설질·설태","입력":tongue or "미입력","처방 적합성 대조":"건조·소태는 음허 방향 참고, 후태·황태는 습담·실열 재검토."},{"항목":"복진/형태","입력":abdomen or "미입력","처방 적합성 대조":"하복부 무력은 하초 허약 방향 확인, 복부 긴장·팽만은 비위·담음·기체 확인."}])
+    st.subheader("해석 참고")
+    st.markdown("- 맥상·설진·복진이 처방 방향과 다르면 처방 자체보다 감별·가감·침구 방향을 먼저 조정합니다.\n- 예: 보음 처방을 보면서 후태·복부팽만·설사가 뚜렷하면 보음약의 위장 부담을 확인합니다.")
 
 with tabs[6]:
-    st.header("7. 임상적 접점을 검증하기 위한 연구 설계")
-    st.markdown(
-        "수학적 구조와 임상 의사결정을 연결하려면 먼저 아래 단계를 통과해야 합니다. "
-        "이 과정을 거치기 전에는 '완벽한 수치화', '오차율 0% 임상 처방', '양자역학적 의학'으로 표현하면 안 됩니다."
-    )
+    st.header("7. 처방 방향 6축·감별")
+    show_df(axes_rows())
+    st.subheader("주요 처방 비교표"); show_df(pd.DataFrame(COMPARE_ROWS), height=360)
+    st.subheader("감별·가감"); st.markdown(f"**감별 처방:** {formula['감별 처방']}"); st.markdown(f"**가감 방향:** {formula['가감 방향']}")
 
-    protocol_rows = [
-        {
-            "단계": "1. 조작적 정의",
-            "필수 내용": "증상, 맥파, 설진, 검사값을 어떤 규칙으로 10개 가중치에 변환하는지 사전 고정",
-            "실패 위험": "연구자 직관으로 사후 좌표를 조정하면 재현 불가",
-        },
-        {
-            "단계": "2. 측정 신뢰도",
-            "필수 내용": "동일 환자 반복 측정, 평가자 간 일치도, 장비 오차와 결측치 처리",
-            "실패 위험": "입력 자체가 불안정하면 정밀한 기하 계산도 임상적으로 무의미",
-        },
-        {
-            "단계": "3. 맹검 검증",
-            "필수 내용": "기하 지표를 모르는 평가자와 임상 결과를 모르는 분석자를 분리",
-            "실패 위험": "기대효과와 확인편향",
-        },
-        {
-            "단계": "4. 대조 모델",
-            "필수 내용": "단순 선형·로지스틱 모델, 기존 임상척도, 무작위 위상 모델과 성능 비교",
-            "실패 위험": "복잡한 다면체가 단순 기준보다 낫다는 증거 부재",
-        },
-        {
-            "단계": "5. 외부 검증",
-            "필수 내용": "다른 기관·다른 환자군·다른 장비에서 재현",
-            "실패 위험": "단일 데이터셋 과적합",
-        },
-        {
-            "단계": "6. 안전성 시험",
-            "필수 내용": "처방·침구·뜸 결정에는 별도의 윤리심의, 이상반응 감시, 중단 기준 필요",
-            "실패 위험": "수학적 정합도를 치료 안전성으로 오인",
-        },
-    ]
-    st.dataframe(pd.DataFrame(protocol_rows), use_container_width=True, hide_index=True)
+with tabs[7]:
+    st.header("8. 황제내경·동의보감·상한론 원전 대응 해석")
+    box("warn","원전을 현대 생물학이나 물리학으로 증명한다는 뜻이 아니라, 입력 소견을 전통 개념과 편제에 맞춰 정리하는 주석층입니다. 자동진단·자동처방이 아닙니다.")
+    st.subheader("A. 황제내경 해당 개념")
+    show_small([
+        {"개념":"음양", "해석":"한열·허실·상하·표리의 치우침을 먼저 본다.", "한의사 질문":"실제 열인가, 허열인가, 냉감과 열감이 섞였는가?"},
+        {"개념":"오행·오장", "해석":"간·심·비·폐·신 기능축 중 어느 축이 병기의 중심인지 본다.", "한의사 질문":"소통, 안신, 운화, 숙강, 저장 중 어느 방향이 무너졌는가?"},
+        {"개념":"승강출입", "해석":"구역·상역·하함·흉민·설사·부종처럼 방향성 병기를 해석한다.", "한의사 질문":"올라가야 할 것이 내려갔는가, 내려가야 할 것이 올라갔는가?"},
+        {"개념":"경맥", "해석":"처방 방향과 경락 후보가 같은 치료 방향을 향하는지 확인한다.", "한의사 질문":"장부 변증과 선택 혈위의 경락 방향이 충돌하지 않는가?"},
+    ])
+    st.subheader("B. 동의보감 해당 편제")
+    show_small(dongui_rows())
+    st.subheader("C. 상한론 삼음삼양·처방 감별")
+    show_df(shanghan_rows_for_formula(), height=170)
+    with st.expander("상한론 149조: 시호탕 vs 반하사심탕 vs 결흉 감별", expanded=(formula_name in ["반하사심탕", "소시호탕", "소함흉탕", "대함흉탕"])):
+        box("info", "핵심: 구역과 발열이 있어도 명치 아래가 그득하지만 아프지 않으면 심하비로 보며, 시호탕을 바로 주기보다 반하사심탕 방향을 검토합니다. 단단하고 아프면 결흉·급성 복증 감별이 우선입니다.")
+        show_df(SHANGHAN_149_DIFF_ROWS, height=230)
+    st.subheader("D. 상한론 전체 참조표")
+    with st.expander("상한론 처방군 참조표 열기", expanded=False):
+        show_df(SHANGHAN_REFERENCE_ROWS, height=360)
+    st.subheader("E. 차트용 상한론 주석")
+    sh_text = shanghan_chart_text()
+    st.text_area("상한론 주석", sh_text, height=300)
+    st.download_button("상한론 주석 다운로드", data=sh_text, file_name=f"{formula_name}_shanghan_note.txt", mime="text/plain")
+    st.subheader("F. 한의사용 해석")
+    box("info","소견서에 입력된 증상과 변증을 음양, 장부·기혈진액, 승강출입, 표본중기, 삼음삼양 병기, 상한론 처방 감별, 동의보감 병증 편제의 언어로 재정리합니다. 최종 처방·침구·뜸 결정은 한의사가 직접 검토해야 합니다.")
 
-    st.subheader("권장 결과 변수")
-    outcome_rows = [
-        {"유형": "주요 결과", "예": "사전 정의된 증상 척도 변화, 객관적 검사값, 이상반응"},
-        {"유형": "모델 성능", "예": "AUC, MAE/RMSE, calibration, decision-curve analysis"},
-        {"유형": "재현성", "예": "ICC, Cohen's κ, test-retest error"},
-        {"유형": "탐색 결과", "예": "φ 거듭제곱 비율·위상 주기와 임상 변수의 상관"},
-    ]
-    st.dataframe(pd.DataFrame(outcome_rows), use_container_width=True, hide_index=True)
+with tabs[8]:
+    st.header("9. 전통 처방 Core")
+    show_small(core_rows())
+    st.subheader("군신좌사·약재 방향"); show_df(herb_rows())
+    st.subheader("동의보감 해당 편제"); show_small(dongui_rows())
 
-    st.error(
-        "응급 증상, 중증 감염, 급성 복증, 흉통·호흡곤란, 신경학적 결손 등은 이 모델보다 표준 의학적 평가가 우선입니다."
-    )
+with tabs[9]:
+    st.header("10. 안전성 확인")
+    box("warn","아래 항목은 금지 판정이 아니라 추가 확인이 필요한 위험 신호입니다.")
+    show_df(safety)
+    st.subheader("혈압 해석")
+    msg=bp_message(bp)
+    box("warn" if "고혈압" in msg or "저혈압" in msg or "미입력" in msg else "success", msg)
+    st.subheader("검사값·복용약 메모")
+    show_small([{"항목":"AST/ALT 등 간기능","입력값":labs or "미입력"},{"항목":"creatinine/eGFR 등 신장기능","입력값":labs or "미입력"},{"항목":"혈압","입력값":bp or "미입력"},{"항목":"복용약","입력값":meds or "미입력"},{"항목":"체크된 안전 항목","입력값":", ".join(checked_safety) if checked_safety else "없음"}])
 
+with tabs[10]:
+    st.header("11. 환자 설명문 패널")
+    box("info","환자에게 복용을 안내할 때 사용할 수 있는 쉬운 표현입니다. 실제 안내 전에는 환자 상황에 맞게 한의사가 검토해야 합니다.")
+    exp=patient_text()
+    st.text_area("환자 설명문", exp, height=430)
+    st.download_button("환자 설명문 다운로드", data=exp, file_name=f"{formula_name}_patient_explanation.txt", mime="text/plain")
+
+with tabs[11]:
+    st.header("12. 연구자용 Q6 / H(3,4) 한의학 상세 해설")
+    if not st.session_state.get("show_research", False):
+        box("info","이 탭은 연구자용입니다. 한의사용 판단 화면에서는 6축·처방·혈위 해설만 보면 됩니다. 사이드바에서 연구자용 탭 보기를 켜면 이 내용을 적극적으로 활용하는 흐름입니다.")
+    box("warn","약재-코돈-아미노산 매핑은 약재가 실제 유전자나 아미노산을 조절한다는 뜻이 아닙니다. 전통 병기와 처방 방향을 64상태·상보쌍·중심평형 언어로 주석화한 연구자용 정보기하학 해석층입니다.")
+    st.subheader("A. Q6/H(3,4) 구조의 한의학적 번역")
+    show_df(Q6_H34_TCM_ROWS, height=280)
+    st.subheader("B. 6효·6축 상세 해석")
+    show_df(RESEARCH_TCM_AXIS_ROWS, height=300)
+    st.subheader("C. 현재 처방의 Q6/H(3,4) 축 해석")
+    show_small([
+        {"항목":"선택 처방", "내용":formula_name},
+        {"항목":"전통 변증", "내용":formula["전통 변증"]},
+        {"항목":"처방 방향축", "내용":", ".join(formula["처방 방향축"])},
+        {"항목":"감별 처방", "내용":formula["감별 처방"]},
+    ])
+    show_df(current_formula_research_rows(), height=220)
+    st.subheader("D. 64상태 예시: 0·9·18·63 및 상보쌍")
+    codon_rows=[]
+    for n in [0,9,18,27,36,45,54,63]:
+        codon=n_to_codon(n)
+        pair=63-n
+        pair_codon=n_to_codon(pair)
+        codon_rows.append({"n":n,"효 순서 비트":n_to_hyo_bits(n),"codon":codon,"amino_acid":GENETIC_CODE[codon],"상보 n↔63-n":pair,"상보 codon":pair_codon,"상보 amino_acid":GENETIC_CODE[pair_codon],"Q6 이웃":", ".join(map(str,q6_neighbors(n))),"H(3,4) 이웃 수":9})
+    show_df(codon_rows, height=330)
+    st.subheader("E. 연구자용 해설문")
+    r_note = research_tcm_note()
+    st.text_area("Q6/H(3,4) 한의학 연구자 주석", r_note, height=360)
+    st.download_button("연구자용 Q6/H(3,4) 주석 다운로드", data=r_note, file_name=f"{formula_name}_q6_h34_tcm_research_note.txt", mime="text/plain")
+    st.subheader("F. 사용 경계")
+    show_small([
+        {"구분":"가능한 사용", "내용":"변증 상태·처방 방향·침구 후보를 64상태와 6축 변화로 설명하는 교육·연구 보조"},
+        {"구분":"가능한 사용", "내용":"Q6는 핵심 병기축 변화, H(3,4)는 주변 감별 처방군을 넓게 보는 지도"},
+        {"구분":"피해야 할 주장", "내용":"약재·침·뜸이 실제 코돈·아미노산·유전자를 직접 조절한다는 주장"},
+        {"구분":"피해야 할 주장", "내용":"64큐브가 한의학 치료효과를 과학적으로 입증했다는 주장"},
+    ])
+
+with tabs[12]:
+    st.header("13. 처방 연동 텐세그리티 역학 엔진 (Hypercube 2D Projection)")
+    box("info", "4차원 하이퍼큐브의 정적 평형 원리를 응용한 침구 생체 역학 모델입니다. 좌측 사이드바에서 선택한 처방의 병기 패턴이 텐세그리티에 자동 적용되고, 핵심 혈위 버튼을 누르면 해당 장부·축이 평형으로 복원되는 과정을 보여줍니다.")
+    
+    # Generate and embed the interactive HTML engine
+    html_content = get_tensegrity_html(formula["핵심 혈위"], formula_name, formula, chief, safety_summary(safety))
+    components.html(html_content, height=750, scrolling=False)
+
+
+with tabs[13]:
+    st.header("14. 플라토닉 솔리드 무오차율 순환 · 환론 · 오행 다면체")
+    box("warn", "이 탭은 플라토닉 솔리드 무오차율 순환 도면을 한의학의 오행·오장·경락·처방 방향을 설명하는 정적평형 정보기하학 모델로 사용하는 주석층입니다. 자동진단이나 치료효과 보장이 아닙니다.")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("순환 구조", "5 정다면체")
+    c2.metric("회귀", "정12면체")
+    c3.metric("현재 처방축", ", ".join(formula["처방 방향축"]))
+
+    st.subheader("A. 플라토닉 솔리드 무오차율 순환")
+    st.markdown("**정12면체 → 정6면체 → 정4면체 → 정8면체 → 정20면체 → 정12면체**")
+    show_df(PLATONIC_CYCLE_ROWS, height=280)
+
+    st.subheader("B. 오행·오장·경락·처방 방향 연결")
+    box("info", "아래 표는 고전 원문이 정다면체를 직접 말한다는 뜻이 아니라, 오행·오장 기능축을 환자 설명과 연구 주석에 쓰기 위한 기능적 배속 예시입니다.")
+    show_df(PLATONIC_OHANG_ROWS, height=300)
+
+    st.subheader("C. 현재 선택 처방과 다면체 축")
+    show_small([
+        {"항목":"선택 처방", "내용":formula_name},
+        {"항목":"전통 변증", "내용":formula["전통 변증"]},
+        {"항목":"처방 방향", "내용":formula["처방 방향"]},
+        {"항목":"핵심 혈위", "내용":", ".join([f"{c} {acu(c)['혈명']}" for c in formula["핵심 혈위"]])},
+    ])
+    show_df(platonic_formula_rows())
+
+    st.subheader("D. 황제내경·동의보감·환론 통합 주석")
+    show_df(HUANGDI_DONGUI_HWANRON_ROWS, height=340)
+
+    st.subheader("E. 차트/환자 설명용 문장")
+    hwan_text = platonic_chart_text()
+    st.text_area("플라토닉 환론 주석", hwan_text, height=360)
+    st.download_button("플라토닉 환론 주석 다운로드", data=hwan_text, file_name=f"{formula_name}_platonic_hwanron_note.txt", mime="text/plain")
+
+    st.subheader("F. 임상 사용 경계")
+    show_small([
+        {"구분":"가능한 사용", "내용":"오행·오장·경락·처방 방향을 정적평형 다면체 모델로 시각화하고 설명하는 교육·상담·연구 보조"},
+        {"구분":"피해야 할 주장", "내용":"플라토닉 도면이 한의학 치료효과를 직접 증명한다는 주장"},
+        {"구분":"피해야 할 주장", "내용":"황제내경·동의보감이 현대 DNA·양자·다면체 물리학을 직접 설명했다는 주장"},
+        {"구분":"임상 원칙", "내용":"실제 처방·침구·뜸 여부와 강도는 한의사가 문진·맥진·설진·복진·검사값·복용약을 종합해 결정"},
+    ])
+
+with tabs[14]:
+    st.header("15. 황금비 다면체 기하학·텐세그리티 임상 접점")
+    box("info", "이 탭은 대수학적으로 무오차 검증된 황금비(Φ) 다면체의 기하학적 수치(꼭짓점, 모서리, 2D 투영 면적 등)를 한의학의 정량적 임상 데이터로 해석하기 위한 연구/교육용 모델입니다.")
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("투영 대칭성", "5회전 (정10각형)")
+    col2.metric("마스터 궤도 평형", "Sum = {0,0}")
+    col3.metric("기본 스케일 팩터", "Φ (황금비)")
+
+    st.subheader("A. 기하학 수치의 한의학적 맵핑")
+    show_df(GOLDEN_RATIO_TKM_ROWS, height=250)
+
+    st.subheader("B. 정10각형(Decagon) 2D 투영 궤도의 십간(十干) 매핑")
+    box("success", "3D 황금비 다면체를 Z축(5회전 대칭축) 기준으로 투영하면 정확히 정10각형 평면 위에 맺힙니다. 이 10개의 궤도는 인체 기혈이 유주하는 음양오행의 한계선입니다.")
+    show_df(DECAGON_STEMS_ROWS, height=380)
+
+    st.subheader("C. 현재 처방의 기하학적 역벡터(Counter-Vector) 해석")
+    show_small([
+        {"항목":"선택 처방", "내용":formula_name},
+        {"항목":"전통 변증", "내용":formula["전통 변증"]},
+        {"항목":"기하학적 역벡터 방향", "내용":", ".join(formula["처방 방향축"])},
+        {"항목":"기하학적 목표", "내용":"무너진 10각형 텐세그리티 궤도를 합력 {0,0}의 정적 평형 상태로 복원"},
+    ])
+
+    st.subheader("D. 차트용 기하학 임상 주석")
+    geom_text = golden_geometry_chart_text()
+    st.text_area("황금비 기하학 주석", geom_text, height=360)
+    st.download_button("황금비 기하학 주석 다운로드", data=geom_text, file_name=f"{formula_name}_golden_geometry_note.txt", mime="text/plain")
+
+    st.subheader("E. 임상 사용 경계")
+    show_small([
+        {"구분":"가능한 사용", "내용":"추상적인 한의학 변증을 다면체 기하학 벡터(합력, 역벡터)로 정량화하여 설명하는 연구 보조"},
+        {"구분":"가능한 사용", "내용":"투영 면적비(Φ)를 활용한 처방 내 약재 비율(군신좌사)의 정밀 산출 알고리즘 기초 데이터"},
+        {"구분":"피해야 할 주장", "내용":"황금비 기하학이 특정 질병을 무조건 치료한다는 확정적 의학 주장"},
+        {"구분":"임상 원칙", "내용":"본 모델은 CDSS 차세대 엔진을 위한 제안이며, 실제 처방 용량은 한의사가 최종 결정"},
+    ])
 
 st.divider()
-st.caption(
-    "교육·연구용 소프트웨어. 수학적으로 정확한 결과와 임상적으로 검증된 결과를 구분하십시오. "
-    "실제 진단·처방·침구·뜸·용량 결정은 면허가 있는 의료전문가의 표준 평가와 근거에 따라야 합니다."
-)
+st.caption("교육·연구·임상 설명 보조용입니다. 자동 진단, 자동 처방, 자동 침구 시술 지시가 아닙니다. 실제 처방 여부와 용량, 혈위, 자침 깊이, 유침 시간, 보사법, 뜸 부위와 강도는 면허가 있는 한의사가 환자 상태를 종합하여 최종 결정해야 합니다.")
